@@ -24,14 +24,17 @@ namespace Jellyfin.Plugin.ExternalRatings.Api;
 public class StatusController : ControllerBase
 {
     private readonly ILibraryManager _libraryManager;
+    private readonly RatingEnrichmentService _enrichmentService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StatusController"/> class.
     /// </summary>
     /// <param name="libraryManager">The library manager, supplied by the host container.</param>
-    public StatusController(ILibraryManager libraryManager)
+    /// <param name="enrichmentService">The shared enrichment service, for live run status.</param>
+    public StatusController(ILibraryManager libraryManager, RatingEnrichmentService enrichmentService)
     {
         _libraryManager = libraryManager;
+        _enrichmentService = enrichmentService;
     }
 
     /// <summary>
@@ -46,6 +49,7 @@ public class StatusController : ControllerBase
 
         var snapshots = _libraryManager.GetVirtualFolders().Select(ToSnapshot).ToList();
         var librariesWithNfo = NfoSaverDetector.Detect(snapshots, config.EnabledLibraries);
+        var lastRun = _enrichmentService.GetStatusSnapshot();
 
         return new StatusResponse
         {
@@ -56,7 +60,8 @@ public class StatusController : ControllerBase
             DailyRequestLimit = config.DailyRequestLimit,
             WriteReasonPlan = "A (ItemUpdateType.None)",
             LibrariesWithNfoSaver = librariesWithNfo,
-            NfoWritesPossible = librariesWithNfo.Count > 0
+            NfoWritesPossible = librariesWithNfo.Count > 0,
+            LastRun = lastRun
         };
     }
 

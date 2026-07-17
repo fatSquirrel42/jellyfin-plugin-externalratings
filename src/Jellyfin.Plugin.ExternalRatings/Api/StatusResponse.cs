@@ -44,4 +44,9 @@ public class StatusResponse
     /// Gets a value indicating whether a rating write could produce NFO writes in a media folder.
     /// </summary>
     public bool NfoWritesPossible { get; init; }
+
+    /// <summary>
+    /// Gets the snapshot of the last enrichment run and the circuit-breaker state.
+    /// </summary>
+    public RunStatusSnapshot? LastRun { get; init; }
 }
