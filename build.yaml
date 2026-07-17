@@ -1,0 +1,18 @@
+---
+name: "External Ratings"
+guid: "54015a93-7e43-4406-adcf-a15cc251dff1"
+version: "0.0.0.1"
+targetAbi: "10.11.11.0"
+framework: "net9.0"
+overview: "Resolves external community ratings (MyAnimeList via mdblist) into Jellyfin's CommunityRating field."
+description: >
+  Server-side plugin that resolves the community score of an external source
+  (initially MyAnimeList through mdblist) for anime items and writes it into
+  Jellyfin's standard CommunityRating field — natively visible on all clients
+  including TV apps, without any web-UI hacks.
+category: "Metadata"
+owner: "fatSquirrel42"
+artifacts:
+- "Jellyfin.Plugin.ExternalRatings.dll"
+changelog: >
+  Initial scaffold.
