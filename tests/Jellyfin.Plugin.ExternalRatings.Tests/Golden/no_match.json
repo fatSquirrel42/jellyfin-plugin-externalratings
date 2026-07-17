@@ -1,0 +1,12 @@
+{
+  "title": "Jaws",
+  "year": 1975,
+  "type": "movie",
+  "score": 86,
+  "score_average": 86,
+  "ids": { "imdb": "tt0073195", "tmdb": 578, "tvdb": null, "mal": null },
+  "ratings": [
+    { "source": "imdb", "value": 8.1, "score": 81, "votes": 673852, "url": 99 },
+    { "source": "myanimelist", "value": null, "score": null, "votes": null, "url": null }
+  ]
+}
