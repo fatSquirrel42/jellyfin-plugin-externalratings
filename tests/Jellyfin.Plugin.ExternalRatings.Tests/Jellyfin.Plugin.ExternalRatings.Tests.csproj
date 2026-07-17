@@ -10,6 +10,10 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="FluentAssertions" Version="7.2.0" />
+    <!-- Unlike the plugin (which references Jellyfin with ExcludeAssets=runtime because the host
+         supplies these DLLs), tests run standalone and need the runtime assemblies (e.g.
+         MediaBrowser.Model for BasePluginConfiguration) copied into the test output. -->
+    <PackageReference Include="Jellyfin.Model" Version="10.11.11" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.11" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="NSubstitute" Version="6.0.0" />
@@ -19,6 +23,12 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- The StatusController auth test reflects [Authorize]/[ApiController]; the shared framework
+       makes those attribute types resolvable at test runtime. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

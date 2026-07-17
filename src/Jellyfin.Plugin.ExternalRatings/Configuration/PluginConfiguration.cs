@@ -1,57 +1,92 @@
+using System;
+using System.Collections.Generic;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.ExternalRatings.Configuration;
 
 /// <summary>
-/// The configuration options.
+/// Plugin configuration (spec §10.1). Only XML-serializable types are used: Jellyfin persists this
+/// through <see cref="System.Xml.Serialization.XmlSerializer"/>, which rejects
+/// <see cref="Dictionary{TKey, TValue}"/> and <see cref="TimeSpan"/> (M6). Enum-valued settings are
+/// stored as strings and mapped to the internal domain enums by the configuration mapper; durations
+/// are stored as whole days.
 /// </summary>
-public enum SomeOptions
-{
-    /// <summary>
-    /// Option one.
-    /// </summary>
-    OneOption,
-
-    /// <summary>
-    /// Second option.
-    /// </summary>
-    AnotherOption
-}
-
-/// <summary>
-/// Plugin configuration.
-/// </summary>
+/// <remarks>
+/// Collections are arrays rather than <see cref="List{T}"/>: <see cref="System.Xml.Serialization.XmlSerializer"/>
+/// replaces an array on deserialize, but <em>appends</em> to a pre-initialized <see cref="List{T}"/>
+/// property (it uses the getter and calls Add), double-counting any ctor defaults such as
+/// <c>ProcessedLevels</c> — a defect the ConfigRoundtripTests catch. Arrays still meet §10.1's real
+/// requirement (XML-serializable, non-<see cref="Dictionary{TKey, TValue}"/> collections; M6).
+/// </remarks>
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
+    /// Gets or sets the ids of the libraries the plugin is enabled for.
     /// </summary>
-    public PluginConfiguration()
-    {
-        // set default options here
-        Options = SomeOptions.AnotherOption;
-        TrueFalseSetting = true;
-        AnInteger = 2;
-        AString = "string";
-    }
+    // CA1819: config DTOs persisted by XmlSerializer expose array properties by design (see remarks).
+#pragma warning disable CA1819
+    public Guid[] EnabledLibraries { get; set; } = Array.Empty<Guid>();
 
     /// <summary>
-    /// Gets or sets a value indicating whether some true or false setting is enabled..
+    /// Gets or sets the genre filter (ANY match, case-insensitive; spec §10.1).
     /// </summary>
-    public bool TrueFalseSetting { get; set; }
+    public string[] GenreFilter { get; set; } = Array.Empty<string>();
 
     /// <summary>
-    /// Gets or sets an integer setting.
+    /// Gets or sets the resolver settings (for example the mdblist API key), keyed by string.
     /// </summary>
-    public int AnInteger { get; set; }
+    public ResolverSetting[] ResolverSettings { get; set; } = Array.Empty<ResolverSetting>();
 
     /// <summary>
-    /// Gets or sets a string setting.
+    /// Gets or sets the processed item levels as strings (mapped to the internal
+    /// <c>ItemLevel</c> enum). Defaults to Movie and Series.
     /// </summary>
-    public string AString { get; set; }
+    public string[] ProcessedLevels { get; set; } = new[] { "Movie", "Series" };
+#pragma warning restore CA1819
 
     /// <summary>
-    /// Gets or sets an enum option.
+    /// Gets or sets the key of the active resolver.
     /// </summary>
-    public SomeOptions Options { get; set; }
+    public string ActiveResolverKey { get; set; } = "mdblist";
+
+    /// <summary>
+    /// Gets or sets the positive-cache time-to-live in days.
+    /// </summary>
+    public int CacheTtlDays { get; set; } = 7;
+
+    /// <summary>
+    /// Gets or sets the negative-cache (no-match) time-to-live in days.
+    /// </summary>
+    public int NegativeCacheTtlDays { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the behavior for authoritative no-matches
+    /// (<c>LeaveExisting</c> or <c>ClearField</c>).
+    /// </summary>
+    public string NoMatchBehavior { get; set; } = "LeaveExisting";
+
+    /// <summary>
+    /// Gets or sets the behavior for unsupported levels (<c>Skip</c> or <c>ClearField</c>).
+    /// </summary>
+    public string UnsupportedLevelBehavior { get; set; } = "Skip";
+
+    /// <summary>
+    /// Gets or sets the daily HTTP request limit.
+    /// </summary>
+    public int DailyRequestLimit { get; set; } = 1000;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the plugin runs after each library scan.
+    /// </summary>
+    public bool RunAfterLibraryScan { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the realtime item listener is enabled.
+    /// </summary>
+    public bool EnableRealtimeListener { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether writes are suppressed (dry run; default on per §4).
+    /// </summary>
+    public bool DryRun { get; set; } = true;
 }

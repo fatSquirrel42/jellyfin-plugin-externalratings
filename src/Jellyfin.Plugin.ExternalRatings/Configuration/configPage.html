@@ -2,36 +2,114 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Template</title>
+    <title>External Ratings</title>
 </head>
 <body>
-    <div id="TemplateConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div id="ExternalRatingsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+         data-require="emby-input,emby-button,emby-select,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
-                <form id="TemplateConfigForm">
+                <form id="ExternalRatingsConfigForm">
+
+                    <div id="dryRunBanner" class="fieldDescription" style="display:none;padding:0.6em;margin-bottom:1em;background:#5a3e00;color:#fff;border-radius:4px;">
+                        Dry run is enabled &mdash; the plugin computes ratings but does not write to your library.
+                    </div>
+
+                    <div id="nfoWarning" class="fieldDescription" style="display:none;padding:0.6em;margin-bottom:1em;background:#6a1b1b;color:#fff;border-radius:4px;"></div>
+
+                    <h2>Libraries</h2>
+                    <div class="fieldDescription">Select the libraries this plugin is enabled for.</div>
+                    <div id="enabledLibraries"></div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="GenreFilter">Genre filter</label>
+                        <input id="GenreFilter" name="GenreFilter" type="text" is="emby-input" />
+                        <div class="fieldDescription">Comma-separated genres (ANY match, case-insensitive). Leave empty to process all items.</div>
+                    </div>
+
+                    <h2>Resolver</h2>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MdblistApiKey">mdblist API key</label>
+                        <input id="MdblistApiKey" name="MdblistApiKey" type="password" is="emby-input" autocomplete="off" />
+                        <div class="fieldDescription">Stored in plaintext in the plugin configuration file (server file permissions apply).</div>
+                    </div>
+
+                    <h2>Processed levels</h2>
+                    <div class="checkboxContainer">
+                        <label class="emby-checkbox-label">
+                            <input id="LevelMovie" type="checkbox" is="emby-checkbox" value="Movie" />
+                            <span>Movie</span>
+                        </label>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label class="emby-checkbox-label">
+                            <input id="LevelSeries" type="checkbox" is="emby-checkbox" value="Series" />
+                            <span>Series</span>
+                        </label>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label class="emby-checkbox-label">
+                            <input id="LevelSeason" type="checkbox" is="emby-checkbox" value="Season" />
+                            <span>Season</span>
+                        </label>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label class="emby-checkbox-label">
+                            <input id="LevelEpisode" type="checkbox" is="emby-checkbox" value="Episode" />
+                            <span>Episode</span>
+                        </label>
+                    </div>
+
+                    <h2>Behavior</h2>
                     <div class="selectContainer">
-                        <label class="selectLabel" for="Options">Several Options</label>
-                        <select is="emby-select" id="Options" name="Options" class="emby-select-withcolor emby-select">
-                            <option id="optOneOption" value="OneOption">One Option</option>
-                            <option id="optAnotherOption" value="AnotherOption">Another Option</option>
+                        <label class="selectLabel" for="NoMatchBehavior">On no match</label>
+                        <select is="emby-select" id="NoMatchBehavior" name="NoMatchBehavior" class="emby-select-withcolor emby-select">
+                            <option value="LeaveExisting">Leave existing rating</option>
+                            <option value="ClearField">Clear the rating</option>
                         </select>
                     </div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="UnsupportedLevelBehavior">On unsupported level</label>
+                        <select is="emby-select" id="UnsupportedLevelBehavior" name="UnsupportedLevelBehavior" class="emby-select-withcolor emby-select">
+                            <option value="Skip">Skip</option>
+                            <option value="ClearField">Clear the rating</option>
+                        </select>
+                    </div>
+
                     <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="AnInteger">An Integer</label>
-                        <input id="AnInteger" name="AnInteger" type="number" is="emby-input" min="0" />
-                        <div class="fieldDescription">A Description</div>
+                        <label class="inputLabel inputLabelUnfocused" for="CacheTtlDays">Cache TTL (days)</label>
+                        <input id="CacheTtlDays" name="CacheTtlDays" type="number" is="emby-input" min="0" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="NegativeCacheTtlDays">Negative cache TTL (days)</label>
+                        <input id="NegativeCacheTtlDays" name="NegativeCacheTtlDays" type="number" is="emby-input" min="0" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="DailyRequestLimit">Daily request limit</label>
+                        <input id="DailyRequestLimit" name="DailyRequestLimit" type="number" is="emby-input" min="0" />
+                    </div>
+
+                    <h2>Triggers</h2>
+                    <div class="checkboxContainer">
+                        <label class="emby-checkbox-label">
+                            <input id="RunAfterLibraryScan" type="checkbox" is="emby-checkbox" />
+                            <span>Run after each library scan</span>
+                        </label>
+                    </div>
+                    <div class="checkboxContainer">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableRealtimeListener" type="checkbox" is="emby-checkbox" />
+                            <span>Enable realtime item listener</span>
+                        </label>
                     </div>
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label class="emby-checkbox-label">
-                            <input id="TrueFalseSetting" name="TrueFalseCheckBox" type="checkbox" is="emby-checkbox" />
-                            <span>A Checkbox</span>
+                            <input id="DryRun" type="checkbox" is="emby-checkbox" />
+                            <span>Dry run (compute only, no writes)</span>
                         </label>
+                        <div class="fieldDescription">Recommended until you have verified the results. Enabled by default.</div>
                     </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="AString">A String</label>
-                        <input id="AString" name="AString" type="text" is="emby-input" />
-                        <div class="fieldDescription">Another Description</div>
-                    </div>
+
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
@@ -40,39 +118,169 @@
                 </form>
             </div>
         </div>
+
         <script type="text/javascript">
-            var TemplateConfig = {
-                pluginUniqueId: 'eb5d7894-8eef-4b36-aa6f-5d124e828ce1'
-            };
+            (function () {
+                var pluginUniqueId = '54015a93-7e43-4406-adcf-a15cc251dff1';
+                var apiKeyName = 'mdblist.apiKey';
+                var levelIds = ['LevelMovie', 'LevelSeries', 'LevelSeason', 'LevelEpisode'];
+                var page;
 
-            document.querySelector('#TemplateConfigPage')
-                .addEventListener('pageshow', function() {
+                function getResolverSetting(config, key) {
+                    var list = config.ResolverSettings || [];
+                    for (var i = 0; i < list.length; i++) {
+                        if (list[i].Key === key) {
+                            return list[i].Value;
+                        }
+                    }
+                    return '';
+                }
+
+                function setResolverSetting(config, key, value) {
+                    var list = config.ResolverSettings || [];
+                    for (var i = 0; i < list.length; i++) {
+                        if (list[i].Key === key) {
+                            list[i].Value = value;
+                            config.ResolverSettings = list;
+                            return;
+                        }
+                    }
+                    list.push({ Key: key, Value: value });
+                    config.ResolverSettings = list;
+                }
+
+                function renderLibraries(config, virtualFolders) {
+                    var enabled = config.EnabledLibraries || [];
+                    var container = page.querySelector('#enabledLibraries');
+                    container.innerHTML = '';
+                    virtualFolders.forEach(function (folder) {
+                        var isChecked = enabled.indexOf(folder.ItemId) !== -1;
+                        var wrapper = document.createElement('div');
+                        wrapper.className = 'checkboxContainer';
+                        var label = document.createElement('label');
+                        label.className = 'emby-checkbox-label';
+                        var input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.setAttribute('is', 'emby-checkbox');
+                        input.className = 'libraryCheckbox';
+                        input.setAttribute('data-itemid', folder.ItemId);
+                        input.checked = isChecked;
+                        var span = document.createElement('span');
+                        span.textContent = folder.Name;
+                        label.appendChild(input);
+                        label.appendChild(span);
+                        wrapper.appendChild(label);
+                        container.appendChild(wrapper);
+                    });
+                }
+
+                function loadStatus() {
+                    ApiClient.ajax({
+                        type: 'GET',
+                        url: ApiClient.getUrl('Plugins/ExternalRatings/Status'),
+                        dataType: 'json'
+                    }).then(function (status) {
+                        var warning = page.querySelector('#nfoWarning');
+                        if (status.NfoWritesPossible) {
+                            warning.textContent = 'Warning: these libraries have an active NFO saver, so rating writes may create or update NFO files in the media folders: '
+                                + status.LibrariesWithNfoSaver.join(', ') + '.';
+                            warning.style.display = '';
+                        } else {
+                            warning.style.display = 'none';
+                        }
+                    });
+                }
+
+                function loadConfig() {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(TemplateConfig.pluginUniqueId).then(function (config) {
-                        document.querySelector('#Options').value = config.Options;
-                        document.querySelector('#AnInteger').value = config.AnInteger;
-                        document.querySelector('#TrueFalseSetting').checked = config.TrueFalseSetting;
-                        document.querySelector('#AString').value = config.AString;
+                    var configPromise = ApiClient.getPluginConfiguration(pluginUniqueId);
+                    var foldersPromise = ApiClient.getVirtualFolders();
+                    Promise.all([configPromise, foldersPromise]).then(function (results) {
+                        var config = results[0];
+                        var folders = results[1];
+
+                        renderLibraries(config, folders);
+                        page.querySelector('#GenreFilter').value = (config.GenreFilter || []).join(', ');
+                        page.querySelector('#MdblistApiKey').value = getResolverSetting(config, apiKeyName);
+
+                        var levels = config.ProcessedLevels || [];
+                        levelIds.forEach(function (id) {
+                            var el = page.querySelector('#' + id);
+                            el.checked = levels.indexOf(el.value) !== -1;
+                        });
+
+                        page.querySelector('#NoMatchBehavior').value = config.NoMatchBehavior;
+                        page.querySelector('#UnsupportedLevelBehavior').value = config.UnsupportedLevelBehavior;
+                        page.querySelector('#CacheTtlDays').value = config.CacheTtlDays;
+                        page.querySelector('#NegativeCacheTtlDays').value = config.NegativeCacheTtlDays;
+                        page.querySelector('#DailyRequestLimit').value = config.DailyRequestLimit;
+                        page.querySelector('#RunAfterLibraryScan').checked = config.RunAfterLibraryScan;
+                        page.querySelector('#EnableRealtimeListener').checked = config.EnableRealtimeListener;
+                        page.querySelector('#DryRun').checked = config.DryRun;
+                        page.querySelector('#dryRunBanner').style.display = config.DryRun ? '' : 'none';
+
                         Dashboard.hideLoadingMsg();
+                        loadStatus();
                     });
-                });
+                }
 
-            document.querySelector('#TemplateConfigForm')
-                .addEventListener('submit', function(e) {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(TemplateConfig.pluginUniqueId).then(function (config) {
-                    config.Options = document.querySelector('#Options').value;
-                    config.AnInteger = document.querySelector('#AnInteger').value;
-                    config.TrueFalseSetting = document.querySelector('#TrueFalseSetting').checked;
-                    config.AString = document.querySelector('#AString').value;
-                    ApiClient.updatePluginConfiguration(TemplateConfig.pluginUniqueId, config).then(function (result) {
-                        Dashboard.processPluginConfigurationUpdateResult(result);
+                function saveConfig() {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
+                        var enabled = [];
+                        page.querySelectorAll('.libraryCheckbox').forEach(function (el) {
+                            if (el.checked) {
+                                enabled.push(el.getAttribute('data-itemid'));
+                            }
+                        });
+                        config.EnabledLibraries = enabled;
+
+                        config.GenreFilter = page.querySelector('#GenreFilter').value
+                            .split(',').map(function (s) { return s.trim(); })
+                            .filter(function (s) { return s.length > 0; });
+
+                        setResolverSetting(config, apiKeyName, page.querySelector('#MdblistApiKey').value);
+
+                        var levels = [];
+                        levelIds.forEach(function (id) {
+                            var el = page.querySelector('#' + id);
+                            if (el.checked) {
+                                levels.push(el.value);
+                            }
+                        });
+                        config.ProcessedLevels = levels;
+
+                        config.NoMatchBehavior = page.querySelector('#NoMatchBehavior').value;
+                        config.UnsupportedLevelBehavior = page.querySelector('#UnsupportedLevelBehavior').value;
+                        config.CacheTtlDays = parseInt(page.querySelector('#CacheTtlDays').value, 10);
+                        config.NegativeCacheTtlDays = parseInt(page.querySelector('#NegativeCacheTtlDays').value, 10);
+                        config.DailyRequestLimit = parseInt(page.querySelector('#DailyRequestLimit').value, 10);
+                        config.RunAfterLibraryScan = page.querySelector('#RunAfterLibraryScan').checked;
+                        config.EnableRealtimeListener = page.querySelector('#EnableRealtimeListener').checked;
+                        config.DryRun = page.querySelector('#DryRun').checked;
+
+                        ApiClient.updatePluginConfiguration(pluginUniqueId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                            page.querySelector('#dryRunBanner').style.display = config.DryRun ? '' : 'none';
+                            loadStatus();
+                        });
                     });
-                });
+                }
 
-                e.preventDefault();
-                return false;
-            });
+                document.querySelector('#ExternalRatingsConfigPage')
+                    .addEventListener('pageshow', function () {
+                        page = this;
+                        loadConfig();
+                    });
+
+                document.querySelector('#ExternalRatingsConfigForm')
+                    .addEventListener('submit', function (e) {
+                        page = document.querySelector('#ExternalRatingsConfigPage');
+                        saveConfig();
+                        e.preventDefault();
+                        return false;
+                    });
+            })();
         </script>
     </div>
 </body>
