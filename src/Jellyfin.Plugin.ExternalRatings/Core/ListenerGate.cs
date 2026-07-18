@@ -44,9 +44,11 @@ internal static class ListenerGate
         }
 
         // Adds are always eligible (a new item is worth enriching regardless of the add's reason);
-        // updates must carry a metadata-bearing reason. Our own writes carry a non-metadata reason
-        // (Plan A) and so are filtered here even without the self-write guard above.
-        if (!isAdd && !IsMetadataReason(reason))
+        // updates must carry an *automatic* metadata reason. MetadataEdit (a manual user edit) is
+        // deliberately excluded so the plugin never overwrites a value the user just set by hand — and
+        // as a side effect our own write (which carries MetadataEdit) is filtered here too, on top of
+        // the self-write guard above.
+        if (!isAdd && !IsAutomaticMetadataReason(reason))
         {
             return GateDecision.SkipIneligibleReason;
         }
@@ -54,11 +56,10 @@ internal static class ListenerGate
         return GateDecision.Process;
     }
 
-    private static bool IsMetadataReason(ItemChangeReason reason) => reason switch
+    private static bool IsAutomaticMetadataReason(ItemChangeReason reason) => reason switch
     {
         ItemChangeReason.MetadataImport => true,
         ItemChangeReason.MetadataDownload => true,
-        ItemChangeReason.MetadataEdit => true,
         _ => false
     };
 }

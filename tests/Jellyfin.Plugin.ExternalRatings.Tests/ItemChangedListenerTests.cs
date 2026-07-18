@@ -143,6 +143,20 @@ public class ItemChangedListenerTests
         var h = Build(selfWrite: true);
         await h.Listener.StartAsync(CancellationToken.None);
 
+        // An automatic update that echoes our own recent write must be suppressed.
+        RaiseUpdated(h, ItemUpdateType.MetadataDownload);
+        DrainAfterWindow(h);
+
+        await h.Enricher.DidNotReceive().EnrichItemAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ManualEdit_DoesNotEnrich()
+    {
+        var h = Build();
+        await h.Listener.StartAsync(CancellationToken.None);
+
+        // A manual UI edit (MetadataEdit) must not be overwritten by the plugin in realtime.
         RaiseUpdated(h, ItemUpdateType.MetadataEdit);
         DrainAfterWindow(h);
 

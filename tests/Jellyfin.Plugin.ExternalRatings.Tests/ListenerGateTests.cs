@@ -43,8 +43,8 @@ public class ListenerGateTests
     [Fact]
     public void Skips_WhenRecentSelfWrite()
     {
-        // Plan B robustness: even a metadata-reason update is dropped if it echoes our own write.
-        Evaluate(reason: ItemChangeReason.MetadataEdit, isRecentSelfWrite: true)
+        // Even an otherwise-eligible automatic update is dropped if it echoes our own write.
+        Evaluate(reason: ItemChangeReason.MetadataDownload, isRecentSelfWrite: true)
             .Should().Be(GateDecision.SkipRecentSelfWrite);
     }
 
@@ -74,9 +74,11 @@ public class ListenerGateTests
     }
 
     [Fact]
-    public void Processes_UpdateWithMetadataEdit()
+    public void Skips_UpdateWithMetadataEdit_ManualEditsAreNotAutoTriggered()
     {
-        Evaluate(isAdd: false, reason: ItemChangeReason.MetadataEdit).Should().Be(GateDecision.Process);
+        // A manual user edit (MetadataEdit) must NOT trigger enrichment — otherwise the plugin would
+        // instantly overwrite a value the user just set by hand. Only automatic updates are eligible.
+        Evaluate(isAdd: false, reason: ItemChangeReason.MetadataEdit).Should().Be(GateDecision.SkipIneligibleReason);
     }
 
     [Fact]
