@@ -26,11 +26,14 @@ namespace Jellyfin.Plugin.ExternalRatings;
 /// its constructor takes public host services, and it builds the internal graph itself (which is why
 /// no internal type ever appears in a public signature).
 /// </summary>
-public sealed class RatingEnrichmentService : IDisposable
+public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
 {
     private const string TargetSource = "myanimelist";
     private const string ApiKeySettingKey = "mdblist.apiKey";
     private const int DefaultDailyLimit = 1000;
+
+    // How long a plugin write suppresses the change event it raises (self-write guard, §15 step 9).
+    private static readonly TimeSpan SelfWriteWindow = TimeSpan.FromSeconds(30);
 
     private readonly ILibraryManager _libraryManager;
     private readonly ILoggerFactory _loggerFactory;
@@ -41,10 +44,27 @@ public sealed class RatingEnrichmentService : IDisposable
     private readonly FileRatingCache _cache;
     private readonly BackupStore _backup;
     private readonly CircuitBreaker _breaker;
-    private readonly JellyfinItemWriter _writer;
+    private readonly SelfWriteTracker _selfWriteTracker;
+    private readonly IItemWriter _writer;
     private readonly DailyRequestCounter _requestCounter;
     private readonly HttpClient _httpClient;
     private readonly object _statusGate = new();
+
+    // One-time persistence + cold-start init guard (shared by full runs and the listener).
+    private readonly SemaphoreSlim _initGate = new(1, 1);
+
+    // Guards building of the shared resolver + per-item pipeline (built once and reused across events,
+    // preserving the pipeline's per-id single-flight and error cache; rebuilt only when the key changes).
+    private readonly object _pipelineLock = new();
+
+    private bool _initialized;
+    private MdblistResolver? _sharedResolver;
+    private RatingPipeline? _sharedPipeline;
+    private string? _pipelineApiKey;
+
+    // Set while a full pass runs, so the listener skips items the pass will cover anyway (avoids the
+    // double-resolve window and the orphan-prune race between the two paths).
+    private volatile bool _fullRunInProgress;
 
     private RunSummary? _lastSummary;
     private DateTimeOffset? _lastRunUtc;
@@ -67,7 +87,8 @@ public sealed class RatingEnrichmentService : IDisposable
         _cache = new FileRatingCache(new FileCacheFileStore(System.IO.Path.Combine(dataDir, "cache.json")), _clock);
         _backup = new BackupStore(new FileCacheFileStore(System.IO.Path.Combine(dataDir, "backup.json")), _clock);
         _breaker = new CircuitBreaker(_clock);
-        _writer = new JellyfinItemWriter(libraryManager);
+        _selfWriteTracker = new SelfWriteTracker(_clock, SelfWriteWindow);
+        _writer = new SelfWriteTrackingItemWriter(new JellyfinItemWriter(libraryManager), _selfWriteTracker);
         _requestCounter = new DailyRequestCounter(_clock);
 
         // Long-lived HTTP stack (§10 HTTP seam). The budget handler counts every mdblist request,
@@ -86,6 +107,9 @@ public sealed class RatingEnrichmentService : IDisposable
         _httpClient = new HttpClient(budgetHandler) { BaseAddress = new Uri("https://api.mdblist.com/") };
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Jellyfin-Plugin-ExternalRatings");
     }
+
+    /// <summary>Gets a value indicating whether the circuit breaker is currently open.</summary>
+    public bool IsCircuitOpen => _breaker.IsOpen;
 
     /// <summary>
     /// Runs a full enrichment pass over the enabled libraries. Shared by every trigger (scheduled
@@ -116,27 +140,13 @@ public sealed class RatingEnrichmentService : IDisposable
             return;
         }
 
-        var resolver = new MdblistResolver(_httpClient, apiKey, new Logger<MdblistResolver>(_loggerFactory));
+        // Initialize the stores + cold-start budget once (shared with the listener).
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 
-        // Cold-start budget read (§7.3): adopt the server's authoritative used-count for the day.
-        var used = await resolver.GetUsedRequestCountAsync(cancellationToken).ConfigureAwait(false);
-        if (used is int usedCount)
-        {
-            _requestCounter.InitializeFromColdStart(usedCount);
-        }
+        var (resolver, pipeline) = GetOrBuildPipeline(apiKey);
 
         Func<PipelineOptions> optionsAccessor = () => PluginConfigurationMapper.ToPipelineOptions(Plugin.Instance!.Configuration);
         Func<int> dailyLimitAccessor = () => Plugin.Instance?.Configuration.DailyRequestLimit ?? DefaultDailyLimit;
-
-        var pipeline = new RatingPipeline(
-            resolver,
-            _writer,
-            _backup,
-            _cache,
-            _clock,
-            _breaker,
-            optionsAccessor,
-            new Logger<RatingPipeline>(_loggerFactory));
 
         var prefetcher = new RatingPrefetcher(
             resolver,
@@ -157,15 +167,92 @@ public sealed class RatingEnrichmentService : IDisposable
             dailyLimitAccessor,
             new Logger<EnrichmentRunner>(_loggerFactory));
 
-        var (items, liveIds) = BuildWorkItems(config);
-        var summary = await runner.RunAsync(items, liveIds, progress, cancellationToken).ConfigureAwait(false);
-
-        lock (_statusGate)
+        _fullRunInProgress = true;
+        try
         {
-            _lastSummary = summary;
-            _lastRunUtc = _clock.UtcNow;
+            var (items, liveIds) = BuildWorkItems(config);
+            var summary = await runner.RunAsync(items, liveIds, progress, cancellationToken).ConfigureAwait(false);
+
+            lock (_statusGate)
+            {
+                _lastSummary = summary;
+                _lastRunUtc = _clock.UtcNow;
+            }
+        }
+        finally
+        {
+            _fullRunInProgress = false;
         }
     }
+
+    /// <summary>
+    /// Enriches a single item on the realtime path (spec §15 step 9). Reuses the shared cache, breaker,
+    /// budget counter, and per-item pipeline; skips when a full pass is running, the budget is exhausted,
+    /// the item is gone, or the item is not in an enabled library / not a supported level.
+    /// </summary>
+    /// <param name="itemId">The Jellyfin item id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task that completes when the item has been processed.</returns>
+    public async Task EnrichItemAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || !config.EnableRealtimeListener)
+        {
+            return;
+        }
+
+        var apiKey = PluginConfigurationMapper.GetResolverSetting(config, ApiKeySettingKey);
+        if (string.IsNullOrWhiteSpace(apiKey) || config.EnabledLibraries.Length == 0)
+        {
+            return;
+        }
+
+        // A full pass covers this item; skip to avoid a double resolve and the orphan-prune race.
+        if (_fullRunInProgress)
+        {
+            return;
+        }
+
+        if (_requestCounter.IsExhausted(config.DailyRequestLimit))
+        {
+            _logger.LogDebug("External Ratings realtime enrichment for {ItemId} skipped: daily budget exhausted", itemId);
+            return;
+        }
+
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+
+        var baseItem = _libraryManager.GetItemById(itemId);
+        if (baseItem is null)
+        {
+            return;
+        }
+
+        if (!IsInEnabledLibrary(baseItem, config.EnabledLibraries))
+        {
+            return;
+        }
+
+        var level = ToLevel(baseItem.GetBaseItemKind());
+        if (level is null)
+        {
+            return;
+        }
+
+        var workItem = new RatingWorkItem(
+            new RatingItemRef(baseItem.Id, baseItem.Name),
+            level.Value,
+            ExtractProviderIds(baseItem),
+            TargetSource);
+
+        var (_, pipeline) = GetOrBuildPipeline(apiKey);
+        var runner = new SingleItemEnrichmentRunner(pipeline, _cache, new Logger<SingleItemEnrichmentRunner>(_loggerFactory));
+        await runner.RunAsync(workItem, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Gets a value indicating whether the plugin wrote the given item within the self-write window.</summary>
+    /// <param name="itemId">The item id.</param>
+    /// <returns><see langword="true"/> if the item was written by the plugin recently.</returns>
+    public bool WasSelfWrite(Guid itemId) => _selfWriteTracker.IsRecent(itemId);
 
     /// <summary>Gets a snapshot of the last run and the circuit-breaker state for the status endpoint.</summary>
     /// <returns>The snapshot.</returns>
@@ -191,6 +278,91 @@ public sealed class RatingEnrichmentService : IDisposable
         _cache.Dispose();
         _backup.Dispose();
         _httpClient.Dispose();
+        _initGate.Dispose();
+    }
+
+    private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
+    {
+        if (_initialized)
+        {
+            return;
+        }
+
+        await _initGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_initialized)
+            {
+                return;
+            }
+
+            await _cache.InitializeAsync(cancellationToken).ConfigureAwait(false);
+            await _backup.InitializeAsync(cancellationToken).ConfigureAwait(false);
+
+            // Cold-start budget read (§7.3): adopt the server's authoritative used-count for the day,
+            // once. Thereafter the budget handler reconciles the counter from response headers, so the
+            // listener path never needs a per-event /user call. Best-effort: never fault the caller.
+            var config = Plugin.Instance?.Configuration;
+            var apiKey = config is null ? null : PluginConfigurationMapper.GetResolverSetting(config, ApiKeySettingKey);
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                try
+                {
+                    var (resolver, _) = GetOrBuildPipeline(apiKey);
+                    var used = await resolver.GetUsedRequestCountAsync(cancellationToken).ConfigureAwait(false);
+                    if (used is int usedCount)
+                    {
+                        _requestCounter.InitializeFromColdStart(usedCount);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "External Ratings cold-start budget read failed; relying on header reconciliation");
+                }
+            }
+
+            _initialized = true;
+        }
+        finally
+        {
+            _initGate.Release();
+        }
+    }
+
+    private (MdblistResolver Resolver, RatingPipeline Pipeline) GetOrBuildPipeline(string apiKey)
+    {
+        lock (_pipelineLock)
+        {
+            if (_sharedResolver is null || _sharedPipeline is null || !string.Equals(_pipelineApiKey, apiKey, StringComparison.Ordinal))
+            {
+                _sharedResolver = new MdblistResolver(_httpClient, apiKey, new Logger<MdblistResolver>(_loggerFactory));
+                _pipelineApiKey = apiKey;
+                _sharedPipeline = new RatingPipeline(
+                    _sharedResolver,
+                    _writer,
+                    _backup,
+                    _cache,
+                    _clock,
+                    _breaker,
+                    () => PluginConfigurationMapper.ToPipelineOptions(Plugin.Instance!.Configuration),
+                    new Logger<RatingPipeline>(_loggerFactory));
+            }
+
+            return (_sharedResolver, _sharedPipeline);
+        }
+    }
+
+    private bool IsInEnabledLibrary(BaseItem item, Guid[] enabledLibraries)
+    {
+        foreach (var folder in _libraryManager.GetCollectionFolders(item))
+        {
+            if (Array.IndexOf(enabledLibraries, folder.Id) >= 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config)
