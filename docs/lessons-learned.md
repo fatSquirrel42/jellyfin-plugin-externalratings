@@ -34,7 +34,7 @@ the reason filter no longer blocks the echo. Building it "robust to both plans" 
 The theoretical gate treated every metadata-bearing reason as a trigger. Live, that meant a **manual**
 rating edit (`MetadataEdit`) was instantly overwritten by the plugin — bad UX. The listener must react
 only to **automatic** reasons (`MetadataDownload`/`MetadataImport`) + adds, never manual edits.
-- Residual gap (see `open-questions.md`): the periodic full pass ignored this and still re-applied the
+- Residual gap: the periodic full pass ignored this and still re-applied the
   external rating over a manual edit. **Fixed in §15 step 10**: locked items (`IsLocked`) are now skipped
   by the full pass and the listener alike, so locking is the durable, Jellyfin-native way to protect a
   hand-set rating. Live-confirmed: a locked item makes the full pass report `processed=0`.
