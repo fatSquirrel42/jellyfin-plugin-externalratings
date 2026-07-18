@@ -365,9 +365,19 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         return false;
     }
 
-    private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config)
+    /// <summary>
+    /// Builds the enumeration query for the enabled libraries. Filtering is by <c>AncestorIds</c>, not
+    /// <c>TopParentIds</c>: the config stores the <em>CollectionFolder</em> ids returned by
+    /// <c>getVirtualFolders().ItemId</c>, and an item's <c>TopParentId</c> is the underlying physical
+    /// folder, not that CollectionFolder — so <c>TopParentIds</c> matches nothing. The CollectionFolder
+    /// is an <em>ancestor</em> of the item, so <c>AncestorIds</c> is the correct filter (verified against
+    /// a live 10.11 library).
+    /// </summary>
+    /// <param name="levels">The processed item levels.</param>
+    /// <param name="enabledLibraries">The enabled library (CollectionFolder) ids.</param>
+    /// <returns>The query.</returns>
+    internal static InternalItemsQuery BuildLibraryQuery(IReadOnlyList<ItemLevel> levels, Guid[] enabledLibraries)
     {
-        var levels = PluginConfigurationMapper.ParseLevels(config);
         var kinds = new List<BaseItemKind>();
         foreach (var level in levels)
         {
@@ -378,12 +388,17 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             }
         }
 
-        var query = new InternalItemsQuery
+        return new InternalItemsQuery
         {
             IncludeItemTypes = kinds.ToArray(),
-            TopParentIds = config.EnabledLibraries,
+            AncestorIds = enabledLibraries,
             Recursive = true
         };
+    }
+
+    private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config)
+    {
+        var query = BuildLibraryQuery(PluginConfigurationMapper.ParseLevels(config), config.EnabledLibraries);
 
         var items = new List<RatingWorkItem>();
         var liveIds = new HashSet<Guid>();
