@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,7 +12,6 @@ using Jellyfin.Plugin.ExternalRatings.Infrastructure;
 using Jellyfin.Plugin.ExternalRatings.Persistence;
 using Jellyfin.Plugin.ExternalRatings.Resolvers;
 using MediaBrowser.Common.Configuration;
-using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -30,9 +30,9 @@ public sealed class RatingEnrichmentService : IDisposable
 {
     private const string TargetSource = "myanimelist";
     private const string ApiKeySettingKey = "mdblist.apiKey";
+    private const int DefaultDailyLimit = 1000;
 
     private readonly ILibraryManager _libraryManager;
-    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<RatingEnrichmentService> _logger;
 
@@ -42,6 +42,8 @@ public sealed class RatingEnrichmentService : IDisposable
     private readonly BackupStore _backup;
     private readonly CircuitBreaker _breaker;
     private readonly JellyfinItemWriter _writer;
+    private readonly DailyRequestCounter _requestCounter;
+    private readonly HttpClient _httpClient;
     private readonly object _statusGate = new();
 
     private RunSummary? _lastSummary;
@@ -49,17 +51,14 @@ public sealed class RatingEnrichmentService : IDisposable
 
     /// <summary>Initializes a new instance of the <see cref="RatingEnrichmentService"/> class.</summary>
     /// <param name="libraryManager">The library manager.</param>
-    /// <param name="httpClientFactory">The HTTP client factory.</param>
     /// <param name="applicationPaths">The application paths (for the plugin data directory).</param>
     /// <param name="loggerFactory">The logger factory.</param>
     public RatingEnrichmentService(
         ILibraryManager libraryManager,
-        IHttpClientFactory httpClientFactory,
         IApplicationPaths applicationPaths,
         ILoggerFactory loggerFactory)
     {
         _libraryManager = libraryManager;
-        _httpClientFactory = httpClientFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<RatingEnrichmentService>();
 
@@ -69,13 +68,34 @@ public sealed class RatingEnrichmentService : IDisposable
         _backup = new BackupStore(new FileCacheFileStore(System.IO.Path.Combine(dataDir, "backup.json")), _clock);
         _breaker = new CircuitBreaker(_clock);
         _writer = new JellyfinItemWriter(libraryManager);
+        _requestCounter = new DailyRequestCounter(_clock);
+
+        // Long-lived HTTP stack (§10 HTTP seam). The budget handler counts every mdblist request,
+        // reconciles the counter from X-RateLimit-* headers, and trips the breaker on 429. Built once
+        // here (composition root) and shared across runs; the API key rides in the query string, so
+        // the client itself is key-agnostic.
+        var primaryHandler = new SocketsHttpHandler { AutomaticDecompression = DecompressionMethods.All };
+        var budgetHandler = new BudgetTrackingHandler(
+            _requestCounter,
+            _breaker,
+            () => Plugin.Instance?.Configuration.DailyRequestLimit ?? DefaultDailyLimit,
+            _loggerFactory.CreateLogger<BudgetTrackingHandler>())
+        {
+            InnerHandler = primaryHandler
+        };
+        _httpClient = new HttpClient(budgetHandler) { BaseAddress = new Uri("https://api.mdblist.com/") };
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Jellyfin-Plugin-ExternalRatings");
     }
 
-    /// <summary>Runs a full enrichment pass over the enabled libraries (scheduled-task entry point).</summary>
+    /// <summary>
+    /// Runs a full enrichment pass over the enabled libraries. Shared by every trigger (scheduled
+    /// task and post-scan task), so all runs use the same cache, breaker, budget counter, and HTTP
+    /// stack.
+    /// </summary>
     /// <param name="progress">Optional progress reporter.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A task that completes when the run finishes.</returns>
-    public async Task RunScheduledAsync(IProgress<double>? progress, CancellationToken cancellationToken)
+    public async Task RunAsync(IProgress<double>? progress, CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration;
         if (config is null)
@@ -96,9 +116,17 @@ public sealed class RatingEnrichmentService : IDisposable
             return;
         }
 
-        var httpClient = _httpClientFactory.CreateClient(NamedClient.Default);
-        httpClient.BaseAddress = new Uri("https://api.mdblist.com/");
-        var resolver = new MdblistResolver(httpClient, apiKey, new Logger<MdblistResolver>(_loggerFactory));
+        var resolver = new MdblistResolver(_httpClient, apiKey, new Logger<MdblistResolver>(_loggerFactory));
+
+        // Cold-start budget read (§7.3): adopt the server's authoritative used-count for the day.
+        var used = await resolver.GetUsedRequestCountAsync(cancellationToken).ConfigureAwait(false);
+        if (used is int usedCount)
+        {
+            _requestCounter.InitializeFromColdStart(usedCount);
+        }
+
+        Func<PipelineOptions> optionsAccessor = () => PluginConfigurationMapper.ToPipelineOptions(Plugin.Instance!.Configuration);
+        Func<int> dailyLimitAccessor = () => Plugin.Instance?.Configuration.DailyRequestLimit ?? DefaultDailyLimit;
 
         var pipeline = new RatingPipeline(
             resolver,
@@ -107,10 +135,27 @@ public sealed class RatingEnrichmentService : IDisposable
             _cache,
             _clock,
             _breaker,
-            () => PluginConfigurationMapper.ToPipelineOptions(Plugin.Instance!.Configuration),
+            optionsAccessor,
             new Logger<RatingPipeline>(_loggerFactory));
 
-        var runner = new EnrichmentRunner(pipeline, _cache, _backup, new Logger<EnrichmentRunner>(_loggerFactory));
+        var prefetcher = new RatingPrefetcher(
+            resolver,
+            _cache,
+            _clock,
+            _breaker,
+            _requestCounter,
+            optionsAccessor,
+            dailyLimitAccessor,
+            new Logger<RatingPrefetcher>(_loggerFactory));
+
+        var runner = new EnrichmentRunner(
+            pipeline,
+            prefetcher,
+            _cache,
+            _backup,
+            _requestCounter,
+            dailyLimitAccessor,
+            new Logger<EnrichmentRunner>(_loggerFactory));
 
         var (items, liveIds) = BuildWorkItems(config);
         var summary = await runner.RunAsync(items, liveIds, progress, cancellationToken).ConfigureAwait(false);
@@ -140,11 +185,12 @@ public sealed class RatingEnrichmentService : IDisposable
         }
     }
 
-    /// <summary>Disposes the owned cache and backup stores.</summary>
+    /// <summary>Disposes the owned cache, backup stores, and HTTP stack.</summary>
     public void Dispose()
     {
         _cache.Dispose();
         _backup.Dispose();
+        _httpClient.Dispose();
     }
 
     private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config)

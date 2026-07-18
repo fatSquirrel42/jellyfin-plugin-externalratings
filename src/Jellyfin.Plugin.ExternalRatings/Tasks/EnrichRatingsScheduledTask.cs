@@ -8,8 +8,8 @@ namespace Jellyfin.Plugin.ExternalRatings.Tasks;
 
 /// <summary>
 /// The dashboard-triggerable "run now" task (spec §5.3.3). A thin Humble Object: it delegates to the
-/// shared <see cref="RatingEnrichmentService"/>. No default triggers — automatic post-scan running is
-/// wired in a later step; this runs on demand from the Scheduled Tasks page.
+/// shared <see cref="RatingEnrichmentService"/>. No default triggers — it runs on demand from the
+/// Scheduled Tasks page. Automatic post-scan running is handled separately by the post-scan task.
 /// </summary>
 public sealed class EnrichRatingsScheduledTask : IScheduledTask
 {
@@ -36,7 +36,7 @@ public sealed class EnrichRatingsScheduledTask : IScheduledTask
 
     /// <inheritdoc />
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
-        => _service.RunScheduledAsync(progress, cancellationToken);
+        => _service.RunAsync(progress, cancellationToken);
 
     /// <inheritdoc />
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers() => Array.Empty<TaskTriggerInfo>();
