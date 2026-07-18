@@ -8,7 +8,7 @@ overview: "Resolves external community ratings (MyAnimeList via mdblist) into Je
 description: >
   Server-side plugin that resolves the community score of an external source
   (initially MyAnimeList through mdblist) for anime items and writes it into
-  Jellyfin's standard CommunityRating field — natively visible on all clients
+  Jellyfin's standard CommunityRating field - natively visible on all clients
   including TV apps, without any web-UI hacks.
 category: "Metadata"
 owner: "fatSquirrel42"
