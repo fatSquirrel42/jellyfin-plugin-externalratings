@@ -61,9 +61,9 @@ internal sealed class EnrichmentRunner
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        await _cache.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        await _backup.InitializeAsync(cancellationToken).ConfigureAwait(false);
-
+        // The stores are initialized once, up front, by the facade (RatingEnrichmentService.
+        // EnsureInitializedAsync); re-initializing here would clear unflushed in-memory state that a
+        // concurrent single-item (listener) enrichment may have written (spec §15 step 9).
         var summary = new RunSummary();
         _logger.LogInformation("External Ratings run {RunId} starting for {Count} item(s)", summary.RunId, items.Count);
 

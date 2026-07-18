@@ -40,8 +40,20 @@ Plan B).
    (confirms `None` persisted to the DB).
 4. **NFO (b):** inspect the item's media folder. With Plan A there should be **no new/modified
    `.nfo` file** (compare file timestamps before/after). This is the core V2 question.
-5. **Listener (c):** not applicable yet — the realtime listener is a later step; just note that the
-   own-write carried reason `None`.
+5. **Listener (c):** the realtime listener now exists (§15 step 9). Watch the server log around the
+   write: even if our `None` write raises an `ItemUpdated`, there must be **exactly one** enrichment and
+   **no repeating chain**. The listener is robust by design — it ignores non-metadata reasons (Plan A)
+   **and** ignores ids the plugin wrote within the self-write window (Plan B) — so a loop should not
+   occur regardless of the write-reason outcome.
+
+## Step C — Realtime listener (§15 step 9, V3/V4)
+1. Keep **Dry run = off**, **Enable realtime listener = on**, the small library enabled.
+2. Manually change the item's Community Rating in the UI (or clear it), then trigger a **metadata
+   refresh** on just that item (Refresh metadata → "Search for missing metadata" / replace).
+3. Expect the listener to re-enrich **only that item**: one `realtime enrichment … : Updated` line,
+   debounced (a burst of refresh events collapses into a single run). No scan is triggered.
+4. Negative checks: with the listener **off**, the refresh must **not** enrich; during a full library
+   scan, the listener defers to the post-scan pass (no duplicate work).
 
 ## Outcome → decision
 - **Plan A holds** (value persists **and** no NFO write): keep `WriteUpdateReason = ItemUpdateType.None`.
@@ -50,6 +62,32 @@ Plan B).
   `WriteUpdateReason = ItemUpdateType.MetadataEdit` in `JellyfinItemWriter.cs`, rebuild, and rely on
   the step-6 NFO warning on the config page (which already fires for NFO-saver libraries). Re-run
   Step B to confirm persistence under Plan B.
+
+## Result (2026-07-18) — Plan B chosen
+Verified live on the dev instance (Jellyfin 10.11.11) with one anime movie (*Violet Evergarden: Der Film*,
+tmdb 533514, MAL 8.8, TMDb 8.304):
+
+- **`None` (Plan A) worked but left the NFO stale.** Run `b9bf9690` (14:11): DB `CommunityRating`
+  8.304 → **8.8** (persisted, `DateLastSaved` set), **no NFO write** (`movie.nfo` mtime unchanged), and
+  the write echo (`ItemUpdated`, reason mapped to `Other`) was dropped via `SkipRecentSelfWrite` — no
+  loop. So Plan A's premise held, but DB and the (NFO-saver-enabled) `<rating>` diverged.
+- **Decision: use Plan B — `WriteUpdateReason = ItemUpdateType.MetadataEdit`** (commit `f4721df`), so the
+  write flows through the host metadata savers like a manual edit and the NFO stays consistent. Run at
+  14:40 confirmed: `movie.nfo` mtime bumped, `<rating>` = **8.8**, DB = **8.8**; the `MetadataEdit` echo
+  → `SkipRecentSelfWrite` (no loop); follow-up task `skippedNoChange` (idempotent). The NFO saver is
+  per-library opt-in, so libraries without it get no NFO (nothing to diverge).
+- **Loop safety under Plan B** rests on the `SelfWriteTracker` (the reason filter no longer blocks the
+  `MetadataEdit` echo), with `SkippedNoChange` idempotency as a backstop.
+- **Realtime listener** additionally restricted to *automatic* reasons (`MetadataDownload`/
+  `MetadataImport`) + adds (commit `151081d`): a manual `MetadataEdit` no longer triggers enrichment, so
+  the plugin does not instantly overwrite a hand-set rating. Verified 15:13 (`SkipIneligibleReason`).
+  Open follow-up (see `open-questions.md`): the periodic full pass still re-applies the external rating
+  over a manual edit — decide whether to skip `IsLocked` items.
+- **Automatic positive path + debounce verified live (15:22):** two provider refreshes ("scan for new
+  and updated" + "replace all") on the item coalesced into **one** realtime enrichment → `Updated` back
+  to 8.8, `movie.nfo` rewritten to 8.8; the write echo was dropped (`SkipRecentSelfWrite`). Across the
+  whole session: 3 realtime enrichments / 5 self-write skips, each tied to a distinct user action — no
+  repeating chain, no errors.
 
 ## Notes
 - Free tier is **1000 requests/day**; each item = 1 request (batch, ~200× cheaper, is step 8). Even a

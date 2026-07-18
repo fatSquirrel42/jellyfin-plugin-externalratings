@@ -13,11 +13,16 @@ namespace Jellyfin.Plugin.ExternalRatings.Infrastructure;
 internal sealed class JellyfinItemWriter : IItemWriter
 {
     /// <summary>
-    /// Plan A (spec §6.6): write with <see cref="ItemUpdateType.None"/>, which sits below the NFO
-    /// saver gate (MetadataDownload) and the listener filter, so plugin writes produce no NFO files
-    /// and do not re-trigger the listener. The single place to switch to Plan B (MetadataEdit).
+    /// Plan B (spec §6.6): write with <see cref="ItemUpdateType.MetadataEdit"/> so the change flows
+    /// through the host's metadata savers exactly like a manual edit — the NFO saver rewrites the
+    /// media-folder NFO for libraries where it is enabled (and does nothing where it is not), keeping
+    /// the DB and NFO consistent. The write reason therefore echoes back through
+    /// <c>ILibraryManager.ItemUpdated</c>; the realtime listener relies on the <c>SelfWriteTracker</c>
+    /// (and the pipeline's no-change idempotency) to avoid re-triggering on our own write. Live
+    /// verification (2026-07-18) confirmed the None variant persisted but did not update the NFO, which
+    /// is why Plan B is used here.
     /// </summary>
-    private const ItemUpdateType WriteUpdateReason = ItemUpdateType.None;
+    private const ItemUpdateType WriteUpdateReason = ItemUpdateType.MetadataEdit;
 
     private readonly ILibraryManager _libraryManager;
 

@@ -40,6 +40,10 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>Jellyfin.Plugin.ExternalRatings.Tests</_Parameter1>
     </AssemblyAttribute>
+    <!-- Lets NSubstitute (Castle DynamicProxy) mock internal interfaces such as ISingleItemEnricher. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>DynamicProxyGenAssembly2</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
 </Project>
