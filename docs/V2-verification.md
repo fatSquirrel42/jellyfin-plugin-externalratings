@@ -83,6 +83,11 @@ tmdb 533514, MAL 8.8, TMDb 8.304):
   the plugin does not instantly overwrite a hand-set rating. Verified 15:13 (`SkipIneligibleReason`).
   Open follow-up (see `open-questions.md`): the periodic full pass still re-applies the external rating
   over a manual edit — decide whether to skip `IsLocked` items.
+- **Automatic positive path + debounce verified live (15:22):** two provider refreshes ("scan for new
+  and updated" + "replace all") on the item coalesced into **one** realtime enrichment → `Updated` back
+  to 8.8, `movie.nfo` rewritten to 8.8; the write echo was dropped (`SkipRecentSelfWrite`). Across the
+  whole session: 3 realtime enrichments / 5 self-write skips, each tied to a distinct user action — no
+  repeating chain, no errors.
 
 ## Notes
 - Free tier is **1000 requests/day**; each item = 1 request (batch, ~200× cheaper, is step 8). Even a
