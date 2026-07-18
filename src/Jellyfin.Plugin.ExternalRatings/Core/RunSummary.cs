@@ -49,6 +49,9 @@ internal sealed class RunSummary
     /// <summary>Gets the number of items skipped because the circuit was open.</summary>
     public long CircuitOpenSkips { get; private set; }
 
+    /// <summary>Gets a value indicating whether the run stopped early because the daily budget was exhausted (§7.3).</summary>
+    public bool StoppedForBudget { get; private set; }
+
     /// <summary>Records a terminal outcome.</summary>
     /// <param name="outcome">The outcome.</param>
     public void Record(RatingOutcome outcome)
@@ -104,6 +107,15 @@ internal sealed class RunSummary
         lock (_gate)
         {
             NoMatchWithUnusedAlternatives++;
+        }
+    }
+
+    /// <summary>Flags that the run stopped early because the daily request budget was exhausted (§7.3).</summary>
+    public void MarkStoppedForBudget()
+    {
+        lock (_gate)
+        {
+            StoppedForBudget = true;
         }
     }
 }

@@ -17,5 +17,9 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<RatingEnrichmentService>();
         serviceCollection.AddSingleton<IScheduledTask, EnrichRatingsScheduledTask>();
+
+        // EnrichRatingsPostScanTask is intentionally NOT registered here: the host discovers
+        // ILibraryPostScanTask implementations by assembly scanning and runs them after every scan.
+        // Registering it as a service would not make the scan pipeline invoke it (unlike IScheduledTask).
     }
 }

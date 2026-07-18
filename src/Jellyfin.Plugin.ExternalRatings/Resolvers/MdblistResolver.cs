@@ -107,6 +107,49 @@ internal sealed class MdblistResolver : IBatchRatingResolver
         return ToResult(media, request.TargetSource, url, "single");
     }
 
+    /// <summary>
+    /// Reads the mdblist <c>/user</c> account endpoint and returns the number of API requests already
+    /// used today (the §7.3 cold-start budget read). The counts live in the response body, not in
+    /// headers. Any transport, status, or parse failure returns <see langword="null"/> so the run
+    /// falls back to the local counter rather than aborting.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The used request count, or <see langword="null"/> if it could not be read.</returns>
+    public async Task<int?> GetUsedRequestCountAsync(CancellationToken cancellationToken)
+    {
+        var url = MdblistUrls.BuildUser(_apiKey);
+
+        HttpResponseMessage response;
+        string body;
+        try
+        {
+            response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
+            body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            _logger.LogWarning("mdblist /user cold-start read failed ({Error}); using the local budget counter", ex.GetType().Name);
+            return null;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("mdblist /user returned status {Status}; using the local budget counter", (int)response.StatusCode);
+            return null;
+        }
+
+        try
+        {
+            var user = JsonSerializer.Deserialize<MdblistUserResponse>(body, JsonOptions);
+            return user?.ApiRequestsCount;
+        }
+        catch (JsonException)
+        {
+            _logger.LogWarning("mdblist /user body could not be parsed; using the local budget counter");
+            return null;
+        }
+    }
+
     /// <inheritdoc />
     public async Task<IReadOnlyDictionary<string, RatingResult>> ResolveBatchAsync(
         ItemLevel level,
