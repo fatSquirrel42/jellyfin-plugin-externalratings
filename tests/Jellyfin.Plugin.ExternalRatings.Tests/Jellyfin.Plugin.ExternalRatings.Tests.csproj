@@ -14,6 +14,9 @@
          supplies these DLLs), tests run standalone and need the runtime assemblies (e.g.
          MediaBrowser.Model for BasePluginConfiguration) copied into the test output. -->
     <PackageReference Include="Jellyfin.Model" Version="10.11.11" />
+    <!-- The realtime-listener tests instantiate host types (BaseItem, ItemChangeEventArgs) and
+         substitute ILibraryManager, so the Controller runtime assemblies must be in the test output. -->
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.11" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.11" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="NSubstitute" Version="6.0.0" />

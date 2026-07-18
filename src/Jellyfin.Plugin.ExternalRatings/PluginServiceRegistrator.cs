@@ -1,3 +1,5 @@
+using Jellyfin.Plugin.ExternalRatings.Core;
+using Jellyfin.Plugin.ExternalRatings.Core.Abstractions;
 using Jellyfin.Plugin.ExternalRatings.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
@@ -17,6 +19,13 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<RatingEnrichmentService>();
         serviceCollection.AddSingleton<IScheduledTask, EnrichRatingsScheduledTask>();
+
+        // The realtime listener (§15 step 9) enriches single items on add/update. It reaches the shared
+        // enrichment state through the ISingleItemEnricher seam, which resolves to the same singleton
+        // service, and needs a clock for its debounce window.
+        serviceCollection.AddSingleton<IClock, SystemClock>();
+        serviceCollection.AddSingleton<ISingleItemEnricher>(sp => sp.GetRequiredService<RatingEnrichmentService>());
+        serviceCollection.AddHostedService<ItemChangedListener>();
 
         // EnrichRatingsPostScanTask is intentionally NOT registered here: the host discovers
         // ILibraryPostScanTask implementations by assembly scanning and runs them after every scan.
