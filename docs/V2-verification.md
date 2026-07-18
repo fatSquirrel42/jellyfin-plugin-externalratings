@@ -63,6 +63,27 @@ Plan B).
   the step-6 NFO warning on the config page (which already fires for NFO-saver libraries). Re-run
   Step B to confirm persistence under Plan B.
 
+## Result (2026-07-18) — Plan B chosen
+Verified live on the dev instance (Jellyfin 10.11.11) with one anime movie (*Violet Evergarden: Der Film*,
+tmdb 533514, MAL 8.8, TMDb 8.304):
+
+- **`None` (Plan A) worked but left the NFO stale.** Run `b9bf9690` (14:11): DB `CommunityRating`
+  8.304 → **8.8** (persisted, `DateLastSaved` set), **no NFO write** (`movie.nfo` mtime unchanged), and
+  the write echo (`ItemUpdated`, reason mapped to `Other`) was dropped via `SkipRecentSelfWrite` — no
+  loop. So Plan A's premise held, but DB and the (NFO-saver-enabled) `<rating>` diverged.
+- **Decision: use Plan B — `WriteUpdateReason = ItemUpdateType.MetadataEdit`** (commit `f4721df`), so the
+  write flows through the host metadata savers like a manual edit and the NFO stays consistent. Run at
+  14:40 confirmed: `movie.nfo` mtime bumped, `<rating>` = **8.8**, DB = **8.8**; the `MetadataEdit` echo
+  → `SkipRecentSelfWrite` (no loop); follow-up task `skippedNoChange` (idempotent). The NFO saver is
+  per-library opt-in, so libraries without it get no NFO (nothing to diverge).
+- **Loop safety under Plan B** rests on the `SelfWriteTracker` (the reason filter no longer blocks the
+  `MetadataEdit` echo), with `SkippedNoChange` idempotency as a backstop.
+- **Realtime listener** additionally restricted to *automatic* reasons (`MetadataDownload`/
+  `MetadataImport`) + adds (commit `151081d`): a manual `MetadataEdit` no longer triggers enrichment, so
+  the plugin does not instantly overwrite a hand-set rating. Verified 15:13 (`SkipIneligibleReason`).
+  Open follow-up (see `open-questions.md`): the periodic full pass still re-applies the external rating
+  over a manual edit — decide whether to skip `IsLocked` items.
+
 ## Notes
 - Free tier is **1000 requests/day**; each item = 1 request (batch, ~200× cheaper, is step 8). Even a
   dry-run pass calls the API per item, so test on a **small** library. The circuit breaker opens after
