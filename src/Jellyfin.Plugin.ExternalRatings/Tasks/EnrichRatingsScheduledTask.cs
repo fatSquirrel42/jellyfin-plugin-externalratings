@@ -9,7 +9,8 @@ namespace Jellyfin.Plugin.ExternalRatings.Tasks;
 /// <summary>
 /// The dashboard-triggerable "run now" task (spec §5.3.3). A thin Humble Object: it delegates to the
 /// shared <see cref="RatingEnrichmentService"/>. No default triggers — it runs on demand from the
-/// Scheduled Tasks page. Automatic post-scan running is handled separately by the post-scan task.
+/// Scheduled Tasks page. Automatic post-scan running is handled separately by
+/// <see cref="EnrichRatingsPostScanTask"/>.
 /// </summary>
 public sealed class EnrichRatingsScheduledTask : IScheduledTask
 {
