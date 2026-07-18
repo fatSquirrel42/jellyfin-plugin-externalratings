@@ -1,5 +1,11 @@
 # V2 verification — write-reason (`ItemUpdateType.None`, Plan A)
 
+> **Outcome (superseded):** Plan A was **not** adopted. The live verification chose **Plan B** —
+> `WriteUpdateReason = ItemUpdateType.MetadataEdit` in `JellyfinItemWriter.cs` — so the DB and any NFO
+> `<rating>` stay consistent. The framing below (which treats `ItemUpdateType.None` as the current code)
+> is kept as the original investigation log; see the "Result (2026-07-18) — Plan B chosen" section and
+> `docs/lessons-learned.md` #2.
+
 **Question (spec §11 V2):** when the plugin writes `CommunityRating` with **`ItemUpdateType.None`**,
 does the change (a) persist correctly, and (b) avoid producing/updating NFO files in media folders,
 and (c) not re-trigger the realtime listener? This can only be answered on a **live Jellyfin 10.11
