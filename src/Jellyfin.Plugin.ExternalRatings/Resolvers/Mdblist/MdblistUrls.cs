@@ -48,6 +48,12 @@ internal static class MdblistUrls
     public static string BuildBatch(string provider, string type, string apiKey)
         => string.Format(CultureInfo.InvariantCulture, "{0}/{1}?apikey={2}", provider, type, apiKey);
 
+    /// <summary>Builds the <c>/user</c> account request path (§7.3 cold-start budget read).</summary>
+    /// <param name="apiKey">The API key.</param>
+    /// <returns>A relative request path.</returns>
+    public static string BuildUser(string apiKey)
+        => string.Format(CultureInfo.InvariantCulture, "user?apikey={0}", apiKey);
+
     /// <summary>Masks the API-key value in a URL for safe logging (H9).</summary>
     /// <param name="url">The URL, possibly containing an <c>apikey</c> query parameter.</param>
     /// <returns>The URL with the key value replaced by <c>***</c>.</returns>

@@ -205,4 +205,37 @@ public class MdblistResolverTests
         results.Values.Should().OnlyContain(r => r.Resolution == RatingResolution.NotSupportedForLevel);
         handler.Requests.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task GetUsedRequestCountAsync_ParsesApiRequestsCountFromBody()
+    {
+        var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, Golden("user.json"));
+
+        var used = await Build(handler).GetUsedRequestCountAsync(CancellationToken.None);
+
+        used.Should().Be(42);
+        handler.Requests.Should().ContainSingle();
+        handler.Requests[0].Method.Should().Be(HttpMethod.Get);
+        handler.Requests[0].Uri.PathAndQuery.Should().Be("/user?apikey=SECRET");
+    }
+
+    [Fact]
+    public async Task GetUsedRequestCountAsync_NonSuccess_ReturnsNull()
+    {
+        var handler = FakeHttpMessageHandler.Json(HttpStatusCode.Unauthorized, "{\"error\":\"unauthorized\"}");
+
+        var used = await Build(handler).GetUsedRequestCountAsync(CancellationToken.None);
+
+        used.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetUsedRequestCountAsync_TransportError_ReturnsNull()
+    {
+        var handler = FakeHttpMessageHandler.Throws(new HttpRequestException("boom"));
+
+        var used = await Build(handler).GetUsedRequestCountAsync(CancellationToken.None);
+
+        used.Should().BeNull();
+    }
 }

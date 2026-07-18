@@ -1,0 +1,9 @@
+{
+  "username": "scrubbed",
+  "user_id": 0,
+  "api_requests": 1000,
+  "api_requests_count": 42,
+  "rate_limit": 1000,
+  "rate_limit_remaining": 958,
+  "rate_limit_reset": 1752796800
+}
