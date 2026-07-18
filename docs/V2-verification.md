@@ -40,8 +40,20 @@ Plan B).
    (confirms `None` persisted to the DB).
 4. **NFO (b):** inspect the item's media folder. With Plan A there should be **no new/modified
    `.nfo` file** (compare file timestamps before/after). This is the core V2 question.
-5. **Listener (c):** not applicable yet — the realtime listener is a later step; just note that the
-   own-write carried reason `None`.
+5. **Listener (c):** the realtime listener now exists (§15 step 9). Watch the server log around the
+   write: even if our `None` write raises an `ItemUpdated`, there must be **exactly one** enrichment and
+   **no repeating chain**. The listener is robust by design — it ignores non-metadata reasons (Plan A)
+   **and** ignores ids the plugin wrote within the self-write window (Plan B) — so a loop should not
+   occur regardless of the write-reason outcome.
+
+## Step C — Realtime listener (§15 step 9, V3/V4)
+1. Keep **Dry run = off**, **Enable realtime listener = on**, the small library enabled.
+2. Manually change the item's Community Rating in the UI (or clear it), then trigger a **metadata
+   refresh** on just that item (Refresh metadata → "Search for missing metadata" / replace).
+3. Expect the listener to re-enrich **only that item**: one `realtime enrichment … : Updated` line,
+   debounced (a burst of refresh events collapses into a single run). No scan is triggered.
+4. Negative checks: with the listener **off**, the refresh must **not** enrich; during a full library
+   scan, the listener defers to the post-scan pass (no duplicate work).
 
 ## Outcome → decision
 - **Plan A holds** (value persists **and** no NFO write): keep `WriteUpdateReason = ItemUpdateType.None`.
