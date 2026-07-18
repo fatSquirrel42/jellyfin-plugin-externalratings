@@ -13,8 +13,9 @@ public class ListenerGateTests
         bool breakerOpen = false,
         bool isAdd = false,
         ItemChangeReason reason = ItemChangeReason.MetadataDownload,
-        bool isRecentSelfWrite = false)
-        => ListenerGate.Evaluate(enabled, isScanRunning, breakerOpen, isAdd, reason, isRecentSelfWrite);
+        bool isRecentSelfWrite = false,
+        bool isLocked = false)
+        => ListenerGate.Evaluate(enabled, isScanRunning, breakerOpen, isAdd, reason, isRecentSelfWrite, isLocked);
 
     [Fact]
     public void Processes_EligibleMetadataUpdate_WhenAllGatesOpen()
@@ -86,6 +87,21 @@ public class ListenerGateTests
     {
         // A newly added item should be enriched even if the add carries a non-metadata reason.
         Evaluate(isAdd: true, reason: ItemChangeReason.Other).Should().Be(GateDecision.Process);
+    }
+
+    [Fact]
+    public void Skips_WhenLocked_EvenForEligibleUpdate()
+    {
+        // A locked item is user-protected: the plugin must never overwrite its rating (spec §15 step 10),
+        // even on an otherwise-eligible automatic metadata update.
+        Evaluate(reason: ItemChangeReason.MetadataDownload, isLocked: true).Should().Be(GateDecision.SkipLocked);
+    }
+
+    [Fact]
+    public void Skips_WhenLocked_EvenForAdd()
+    {
+        // Locking wins over the always-eligible add path too.
+        Evaluate(isAdd: true, isLocked: true).Should().Be(GateDecision.SkipLocked);
     }
 
     [Fact]

@@ -31,6 +31,10 @@ internal interface IBackupStore
     /// <returns><see langword="true"/> if an entry exists.</returns>
     bool TryGet(Guid itemId, out BackupEntry entry);
 
+    /// <summary>Gets the ids of all backed-up items (a snapshot; used by restore, spec §9.2).</summary>
+    /// <returns>The backed-up item ids.</returns>
+    IReadOnlyCollection<Guid> GetItemIds();
+
     /// <summary>Removes a backup entry (used by restore, spec §9.2 step 5).</summary>
     /// <param name="itemId">The item id.</param>
     /// <param name="cancellationToken">The cancellation token.</param>

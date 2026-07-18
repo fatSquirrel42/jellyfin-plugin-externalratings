@@ -131,6 +131,24 @@ public class BackupStoreTests
     }
 
     [Fact]
+    public async Task GetItemIds_ReturnsAllBackedUpKeys()
+    {
+        var store = new BackupStore(new InMemoryCacheFileStore(), new FakeClock());
+        await store.EnsureBackedUpAsync(ItemA, 6.4f, CancellationToken.None);
+        await store.EnsureBackedUpAsync(ItemB, null, CancellationToken.None);
+
+        store.GetItemIds().Should().BeEquivalentTo(new[] { ItemA, ItemB });
+    }
+
+    [Fact]
+    public void GetItemIds_Empty_ReturnsEmpty()
+    {
+        var store = new BackupStore(new InMemoryCacheFileStore(), new FakeClock());
+
+        store.GetItemIds().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task CorruptFile_StartsEmpty()
     {
         var fileStore = new InMemoryCacheFileStore();

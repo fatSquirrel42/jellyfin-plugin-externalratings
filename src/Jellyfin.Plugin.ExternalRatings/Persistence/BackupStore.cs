@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -100,6 +101,9 @@ internal sealed class BackupStore : IBackupStore, IDisposable
 
     /// <inheritdoc />
     public bool TryGet(Guid itemId, out BackupEntry entry) => _entries.TryGetValue(itemId, out entry);
+
+    /// <inheritdoc />
+    public IReadOnlyCollection<Guid> GetItemIds() => _entries.Keys.ToArray();
 
     /// <inheritdoc />
     public async Task RemoveAsync(Guid itemId, CancellationToken cancellationToken)

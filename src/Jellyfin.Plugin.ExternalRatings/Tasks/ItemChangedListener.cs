@@ -186,7 +186,8 @@ internal sealed class ItemChangedListener : IHostedService, IDisposable
                 _enricher.IsCircuitOpen,
                 isAdd,
                 reason,
-                _enricher.WasSelfWrite(item.Id));
+                _enricher.WasSelfWrite(item.Id),
+                item.IsLocked);
 
             if (decision != GateDecision.Process)
             {

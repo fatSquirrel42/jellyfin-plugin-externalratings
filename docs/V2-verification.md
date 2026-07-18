@@ -81,16 +81,38 @@ tmdb 533514, MAL 8.8, TMDb 8.304):
 - **Realtime listener** additionally restricted to *automatic* reasons (`MetadataDownload`/
   `MetadataImport`) + adds (commit `151081d`): a manual `MetadataEdit` no longer triggers enrichment, so
   the plugin does not instantly overwrite a hand-set rating. Verified 15:13 (`SkipIneligibleReason`).
-  Open follow-up (see `open-questions.md`): the periodic full pass still re-applies the external rating
-  over a manual edit — decide whether to skip `IsLocked` items.
+  Follow-up now resolved in step 10 (see below): locked items are skipped by the full pass too.
 - **Automatic positive path + debounce verified live (15:22):** two provider refreshes ("scan for new
   and updated" + "replace all") on the item coalesced into **one** realtime enrichment → `Updated` back
   to 8.8, `movie.nfo` rewritten to 8.8; the write echo was dropped (`SkipRecentSelfWrite`). Across the
   whole session: 3 realtime enrichments / 5 self-write skips, each tied to a distinct user action — no
   repeating chain, no errors.
 
+## Step 10 verification (2026-07-18) — IsLocked skip + Restore + Clear cache
+
+Verified live on the dev instance (Jellyfin 10.11.11, Release build loaded 16:02) with the same anime
+movie (*Violet Evergarden: Der Film*). Baseline before the tests: DB `CommunityRating` **8.8** (plugin's
+MAL write), `backup.json` = original **8.304**, `cache.json` = MAL 8.8, item unlocked.
+
+- **IsLocked — full pass skips locked items.** Locked the item in the UI, then ran the enrichment task.
+  Log (16:10): the lock's `MetadataEdit` echo hit the listener as `SkipLocked` (new gate branch), and the
+  run reported `starting for 0 item(s) … processed=0` — i.e. the live `AncestorIds` query + `BuildWorkItems`
+  filtered the locked item out of the work set. DB rating stayed **8.8**. This is the live-only proof that
+  offline tests cannot give (query behavior, per lessons-learned #1).
+- **Clear cache — cache only.** "Clear rating cache" button → `cache.json` deleted, `backup.json`
+  untouched (original 8.304 preserved), so restore remained possible.
+- **Restore all — ignores the lock (deliberate admin reset).** "Restore all original ratings" button
+  (item still locked) → log (16:11) `RestoreRunner … starting for 1 backed-up item(s) … restore done: 1
+  item(s) restored`. DB `CommunityRating` **8.8 → 8.304**, `backup.json` emptied, and `movie.nfo`
+  `<rating>` rewritten to **8.304** (Plan B `MetadataEdit` flows through the NFO saver). The restore's own
+  write echo was dropped (`SkipLocked` here; the `SelfWriteTracker` is the guard when unlocked) — no
+  re-enrich loop.
+- **Mid-run 409** is impractical to trigger with a one-item library (a run completes instantly); the
+  mutual-exclusion is covered by `ExclusiveOperationGateTests`.
+
 ## Notes
 - Free tier is **1000 requests/day**; each item = 1 request (batch, ~200× cheaper, is step 8). Even a
   dry-run pass calls the API per item, so test on a **small** library. The circuit breaker opens after
   repeated errors/429s and stops the run as a backstop.
-- Restore is not built yet (step 10); to undo a test write, edit the rating back manually.
+- Restore is available from step 10: the config page "Restore all original ratings" button resets every
+  plugin-changed rating to its `backup.json` original and clears the backups.

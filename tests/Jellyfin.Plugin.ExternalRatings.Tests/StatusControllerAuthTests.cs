@@ -45,4 +45,15 @@ public class StatusControllerAuthTests
         route.Should().NotBeNull();
         route!.Template.Should().Be("Plugins/ExternalRatings");
     }
+
+    [Theory]
+    [InlineData(nameof(StatusController.Restore), "Restore")]
+    [InlineData(nameof(StatusController.ClearCache), "ClearCache")]
+    public void MutatingActions_ArePostWithExpectedRoute(string methodName, string template)
+    {
+        var post = typeof(StatusController).GetMethod(methodName)!.GetCustomAttribute<HttpPostAttribute>();
+
+        post.Should().NotBeNull();
+        post!.Template.Should().Be(template);
+    }
 }

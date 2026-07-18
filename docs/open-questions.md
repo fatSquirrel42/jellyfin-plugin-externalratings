@@ -1,6 +1,18 @@
 # Offene Klärungen / TODO
 
-## Manuelle Bewertungen vs. Vollpass (offen — nicht Teil von §15 Schritt 9)
+## ✅ GELÖST (§15 Schritt 10, 2026-07-18): Manuelle Bewertungen vs. Vollpass
+
+**Entscheidung:** Gesperrte Items (`BaseItem.IsLocked`) werden **immer** von der Anreicherung
+übersprungen — im Realtime-Listener (`ListenerGate.SkipLocked` + Guard in `EnrichItemAsync`) **und** im
+Vollpass (`BuildWorkItems` überspringt gesperrte Items, nimmt sie aber weiter in `liveIds` auf, damit
+`PruneOrphans` ihr Backup nicht löscht). Kein Config-Flag — Sperren ist der Jellyfin-native, dauerhafte
+Schutz eines manuell gesetzten Werts. Der **Restore ignoriert die Sperre bewusst** (expliziter
+Admin-Reset). Live verifiziert (Vollpass `starting for 0 item(s)` bei gesperrtem Item), siehe
+`V2-verification.md` (Step 10). Der historische Kontext bleibt unten stehen.
+
+---
+
+## Manuelle Bewertungen vs. Vollpass (ursprüngliche Fragestellung — jetzt gelöst, siehe oben)
 
 **Kontext.** Der Realtime-Listener (§15 Schritt 9) reagiert bewusst **nur auf automatische** Metadaten-
 Updates (`MetadataDownload` / `MetadataImport`) und auf neu hinzugefügte Items — **nicht** auf

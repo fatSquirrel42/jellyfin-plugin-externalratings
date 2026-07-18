@@ -57,14 +57,15 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     // preserving the pipeline's per-id single-flight and error cache; rebuilt only when the key changes).
     private readonly object _pipelineLock = new();
 
+    // Serializes the full pass, restore-all, and cache clear so they never overlap (spec §15 step 10).
+    // The listener reads its InProgress flags to skip items a full pass/restore will cover anyway
+    // (avoids the double-resolve window and the orphan-prune / restore-undo races between the paths).
+    private readonly ExclusiveOperationGate _gate = new();
+
     private bool _initialized;
     private MdblistResolver? _sharedResolver;
     private RatingPipeline? _sharedPipeline;
     private string? _pipelineApiKey;
-
-    // Set while a full pass runs, so the listener skips items the pass will cover anyway (avoids the
-    // double-resolve window and the orphan-prune race between the two paths).
-    private volatile bool _fullRunInProgress;
 
     private RunSummary? _lastSummary;
     private DateTimeOffset? _lastRunUtc;
@@ -167,7 +168,13 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             dailyLimitAccessor,
             new Logger<EnrichmentRunner>(_loggerFactory));
 
-        _fullRunInProgress = true;
+        // Refuse to run while a restore or cache clear holds the gate (mutual exclusion, §15 step 10).
+        if (!_gate.TryBeginFullRun())
+        {
+            _logger.LogInformation("External Ratings run skipped: another operation (restore/clear/run) is in progress");
+            return;
+        }
+
         try
         {
             var (items, liveIds) = BuildWorkItems(config);
@@ -181,7 +188,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         }
         finally
         {
-            _fullRunInProgress = false;
+            _gate.End();
         }
     }
 
@@ -207,8 +214,9 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             return;
         }
 
-        // A full pass covers this item; skip to avoid a double resolve and the orphan-prune race.
-        if (_fullRunInProgress)
+        // A full pass or restore covers/overwrites this item; skip to avoid a double resolve, the
+        // orphan-prune race, and re-applying an external rating over a value being restored.
+        if (_gate.IsFullRunInProgress || _gate.IsRestoreInProgress)
         {
             return;
         }
@@ -223,6 +231,13 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
 
         var baseItem = _libraryManager.GetItemById(itemId);
         if (baseItem is null)
+        {
+            return;
+        }
+
+        // A locked item is user-protected; never overwrite its rating (spec §15 step 10). Defensive:
+        // the listener gate already drops locked items, but the facade is the enforcement point.
+        if (baseItem.IsLocked)
         {
             return;
         }
@@ -247,6 +262,65 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         var (_, pipeline) = GetOrBuildPipeline(apiKey);
         var runner = new SingleItemEnrichmentRunner(pipeline, _cache, new Logger<SingleItemEnrichmentRunner>(_loggerFactory));
         await runner.RunAsync(workItem, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Restores every backed-up item's community rating to its original value and clears the backups
+    /// (spec §9.2, §15 step 10). Refused while a full pass or cache clear is in progress. Restore
+    /// ignores <c>IsLocked</c> on purpose — it is a deliberate admin reset.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The number of entries restored, or <see langword="null"/> if another operation was in progress.</returns>
+    public async Task<int?> RestoreAllAsync(CancellationToken cancellationToken)
+    {
+        if (!_gate.TryBeginRestore())
+        {
+            _logger.LogInformation("External Ratings restore skipped: another operation is in progress");
+            return null;
+        }
+
+        try
+        {
+            // Load backup.json (and the cache) once, exactly as a run would; without this the backup
+            // set is empty on a cold process and restore would silently no-op.
+            await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+
+            // Write through the self-write-tracking _writer so the restore's own MetadataEdit echo does
+            // not re-trigger the realtime listener and immediately re-apply an external rating.
+            var runner = new RestoreRunner(_backup, _writer, new Logger<RestoreRunner>(_loggerFactory));
+            return await runner.RestoreAllAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.End();
+        }
+    }
+
+    /// <summary>
+    /// Clears the resolved-rating cache (spec §9.3, §15 step 10). The backup store is left intact, so
+    /// restore remains possible. Refused while a full pass or restore is in progress.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><see langword="true"/> if the cache was cleared; <see langword="false"/> if another operation was in progress.</returns>
+    public async Task<bool> ClearCacheAsync(CancellationToken cancellationToken)
+    {
+        if (!_gate.TryBeginClearCache())
+        {
+            _logger.LogInformation("External Ratings cache clear skipped: another operation is in progress");
+            return false;
+        }
+
+        try
+        {
+            // ClearAsync drops the in-memory dictionary and deletes the file unconditionally, so no
+            // prior InitializeAsync is needed.
+            await _cache.ClearAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _gate.End();
+        }
     }
 
     /// <summary>Gets a value indicating whether the plugin wrote the given item within the self-write window.</summary>
@@ -410,12 +484,21 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 continue;
             }
 
+            // Record every item as "live" first — even locked ones — so the orphan-prune (which deletes
+            // backups not in liveIds) never strands a locked item's protected original rating. Only after
+            // that do we skip locked items from enrichment (spec §15 step 10): a locked item is
+            // user-protected, so the full pass must not overwrite its rating.
+            liveIds.Add(baseItem.Id);
+            if (baseItem.IsLocked)
+            {
+                continue;
+            }
+
             items.Add(new RatingWorkItem(
                 new RatingItemRef(baseItem.Id, baseItem.Name),
                 level.Value,
                 ExtractProviderIds(baseItem),
                 TargetSource));
-            liveIds.Add(baseItem.Id);
         }
 
         return (items, liveIds);

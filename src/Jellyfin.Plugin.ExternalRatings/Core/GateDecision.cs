@@ -23,5 +23,8 @@ internal enum GateDecision
     SkipIneligibleReason,
 
     /// <summary>The item was written by the plugin itself very recently (self-write echo).</summary>
-    SkipRecentSelfWrite
+    SkipRecentSelfWrite,
+
+    /// <summary>The item is locked (<see cref="MediaBrowser.Controller.Entities.BaseItem.IsLocked"/>); the user protects its metadata, so the plugin must not overwrite it (spec §15 step 10).</summary>
+    SkipLocked
 }
