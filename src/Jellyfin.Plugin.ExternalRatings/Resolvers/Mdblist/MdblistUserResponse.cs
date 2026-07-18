@@ -4,7 +4,7 @@ namespace Jellyfin.Plugin.ExternalRatings.Resolvers.Mdblist;
 
 /// <summary>
 /// The mdblist <c>/user</c> account response. The daily budget counts live in the body (not in
-/// <c>X-RateLimit-*</c> headers on this endpoint, per §7.3 / MdblistV1Notes); the cold-start budget
+/// <c>X-RateLimit-*</c> headers on this endpoint, per §7.3 / docs/mdblist-v1-notes.md); the cold-start budget
 /// read adopts <see cref="ApiRequestsCount"/> as the authoritative used count for the day.
 /// </summary>
 internal sealed class MdblistUserResponse
