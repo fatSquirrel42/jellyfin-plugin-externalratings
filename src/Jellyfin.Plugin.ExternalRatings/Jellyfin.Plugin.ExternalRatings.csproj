@@ -30,6 +30,12 @@
     <EmbeddedResource Include="Configuration\configPage.html" />
   </ItemGroup>
 
+  <!-- A Jellyfin plugin folder needs the DLL plus a meta.json manifest; emit meta.json next to the
+       build output so a manual/dev install (see scripts/install-local.ps1) is complete. -->
+  <ItemGroup>
+    <None Include="meta.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>Jellyfin.Plugin.ExternalRatings.Tests</_Parameter1>

@@ -1,19 +1,8 @@
 {
-    // jellyfinDir : The directory of the cloned jellyfin server project
-    // This needs to be built once before it can be used
-    "jellyfinDir": "${workspaceFolder}/../jellyfin/Jellyfin.Server",
-    // jellyfinWebDir : The directory of the cloned jellyfin-web project
-    // This needs to be built once before it can be used
-    "jellyfinWebDir": "${workspaceFolder}/../jellyfin-web",
-    // jellyfinDataDir : the root data directory for a running jellyfin instance
-    // This is where jellyfin stores its configs, plugins, metadata etc
-    // This is platform specific by default, but on Windows defaults to
-    // ${env:LOCALAPPDATA}/jellyfin
-    // and on Linux, it defaults to
-    // ${env:XDG_DATA_HOME}/jellyfin
-    // However ${env:XDG_DATA_HOME} does not work in Visual Studio Code's development container!
-    "jellyfinWindowsDataDir": "${env:LOCALAPPDATA}/jellyfin",
-    "jellyfinLinuxDataDir": "$HOME/.local/share/jellyfin",
-    // The name of the plugin
-    "pluginName": "Jellyfin.Plugin.Template",
+    // This repo builds from Jellyfin.Plugin.ExternalRatings.sln (repo root); the plugin project
+    // lives under src/Jellyfin.Plugin.ExternalRatings/.
+    //
+    // To install into a running Jellyfin instance, run the "build-and-install" task or:
+    //   ./scripts/install-local.ps1 -JellyfinDataDir <your-instance-data-dir>
+    // The data dir is the folder containing 'plugins' (defaults to %LOCALAPPDATA%\jellyfin).
 }
