@@ -116,6 +116,29 @@
                         </button>
                     </div>
                 </form>
+
+                <h2>Actions</h2>
+                <div class="fieldDescription" style="margin-bottom:0.6em;">
+                    Manual controls. Only one action (a run, a restore, or a cache clear) can be active at a time.
+                </div>
+                <div>
+                    <button id="RunNowButton" is="emby-button" type="button" class="raised block emby-button">
+                        <span>Run enrichment now</span>
+                    </button>
+                    <div class="fieldDescription">Starts the enrichment scheduled task. Watch progress under Dashboard &gt; Scheduled Tasks.</div>
+                </div>
+                <div>
+                    <button id="RestoreAllButton" is="emby-button" type="button" class="raised block emby-button">
+                        <span>Restore all original ratings</span>
+                    </button>
+                    <div class="fieldDescription">Resets every rating the plugin changed back to its original value and clears the plugin's backups.</div>
+                </div>
+                <div>
+                    <button id="ClearCacheButton" is="emby-button" type="button" class="raised block emby-button">
+                        <span>Clear rating cache</span>
+                    </button>
+                    <div class="fieldDescription">Discards cached external ratings so the next run re-fetches them. Original-value backups are kept, so Restore still works.</div>
+                </div>
             </div>
         </div>
 
@@ -267,6 +290,58 @@
                     });
                 }
 
+                function runNow() {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getScheduledTasks().then(function (tasks) {
+                        Dashboard.hideLoadingMsg();
+                        var task = (tasks || []).filter(function (t) { return t.Key === 'ExternalRatingsEnrich'; })[0];
+                        if (!task) {
+                            Dashboard.alert('Enrichment task not found.');
+                            return;
+                        }
+                        ApiClient.startScheduledTask(task.Id).then(function () {
+                            Dashboard.alert('Enrichment started. Watch progress under Dashboard > Scheduled Tasks.');
+                        });
+                    });
+                }
+
+                function restoreAll() {
+                    if (!confirm('Restore all ratings the plugin changed back to their original values? This clears the plugin’s backups.')) {
+                        return;
+                    }
+                    page = document.querySelector('#ExternalRatingsConfigPage');
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Plugins/ExternalRatings/Restore'),
+                        dataType: 'json'
+                    }).then(function (result) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Restored ' + result.RestoredCount + ' item(s) to their original ratings.');
+                        loadStatus();
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Could not restore now — a run or another action is in progress. Please try again shortly.');
+                    });
+                }
+
+                function clearCache() {
+                    if (!confirm('Clear the cached external ratings? Original-value backups are kept, so Restore still works.')) {
+                        return;
+                    }
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Plugins/ExternalRatings/ClearCache')
+                    }).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Rating cache cleared.');
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Could not clear the cache now — a run or another action is in progress. Please try again shortly.');
+                    });
+                }
+
                 document.querySelector('#ExternalRatingsConfigPage')
                     .addEventListener('pageshow', function () {
                         page = this;
@@ -280,6 +355,10 @@
                         e.preventDefault();
                         return false;
                     });
+
+                document.querySelector('#RunNowButton').addEventListener('click', runNow);
+                document.querySelector('#RestoreAllButton').addEventListener('click', restoreAll);
+                document.querySelector('#ClearCacheButton').addEventListener('click', clearCache);
             })();
         </script>
     </div>

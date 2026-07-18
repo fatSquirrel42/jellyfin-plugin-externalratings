@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Mime;
+using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.ExternalRatings.Core;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
@@ -58,11 +60,45 @@ public class StatusController : ControllerBase
             ProcessedLevels = PluginConfigurationMapper.ParseLevels(config)
                 .Select(level => level.ToString()).ToList(),
             DailyRequestLimit = config.DailyRequestLimit,
-            WriteReasonPlan = "A (ItemUpdateType.None)",
+            WriteReasonPlan = "B (ItemUpdateType.MetadataEdit)",
             LibrariesWithNfoSaver = librariesWithNfo,
             NfoWritesPossible = librariesWithNfo.Count > 0,
             LastRun = lastRun
         };
+    }
+
+    /// <summary>
+    /// Restores every backed-up item's community rating to its original value and clears the backups
+    /// (spec §9.2, §15 step 10).
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The number of items restored, or 409 if another operation is in progress.</returns>
+    [HttpPost("Restore")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RestoreResult>> Restore(CancellationToken cancellationToken)
+    {
+        var count = await _enrichmentService.RestoreAllAsync(cancellationToken).ConfigureAwait(false);
+        if (count is null)
+        {
+            return Conflict();
+        }
+
+        return new RestoreResult { RestoredCount = count.Value };
+    }
+
+    /// <summary>
+    /// Clears the resolved-rating cache (spec §9.3, §15 step 10). The backup store is left intact.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>204 on success, or 409 if another operation is in progress.</returns>
+    [HttpPost("ClearCache")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult> ClearCache(CancellationToken cancellationToken)
+    {
+        var cleared = await _enrichmentService.ClearCacheAsync(cancellationToken).ConfigureAwait(false);
+        return cleared ? NoContent() : Conflict();
     }
 
     private static LibraryNfoSnapshot ToSnapshot(VirtualFolderInfo folder)
