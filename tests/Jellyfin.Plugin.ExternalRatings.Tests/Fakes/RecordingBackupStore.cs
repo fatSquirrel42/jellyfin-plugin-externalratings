@@ -31,6 +31,8 @@ internal sealed class RecordingBackupStore : IBackupStore
 
     public bool TryGet(Guid itemId, out BackupEntry entry) => _entries.TryGetValue(itemId, out entry);
 
+    public IReadOnlyCollection<Guid> GetItemIds() => _entries.Keys.ToArray();
+
     public Task RemoveAsync(Guid itemId, CancellationToken cancellationToken)
     {
         _entries.Remove(itemId);
