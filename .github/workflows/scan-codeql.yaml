@@ -15,6 +15,14 @@ on:
 
 jobs:
   call:
+    # The reusable workflow declares no permissions, so the called job runs with the repo's
+    # (restrictive) default GITHUB_TOKEN. CodeQL's analyze step needs these to upload SARIF and read
+    # the workflow run — without them the scan runs but fails at the end with
+    # "Resource not accessible by integration". Grant them at the caller job level.
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     uses: jellyfin/jellyfin-meta-plugins/.github/workflows/scan-codeql.yaml@master
     with:
       repository-name: fatSquirrel42/jellyfin-plugin-externalratings
