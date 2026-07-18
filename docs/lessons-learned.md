@@ -49,3 +49,10 @@ Gate decisions and per-item realtime outcomes log at `Debug`, but Jellyfin defau
 the whole realtime path was invisible until a `config/logging.json` override raised
 `Jellyfin.Plugin.ExternalRatings` to `Debug`. Verifying event-driven behavior needs the logs that prove
 *why* something was (not) done — make sure they are actually visible during a smoke test.
+
+## 7. `targetAbi` is a *minimum*, not a compatibility guarantee (Jellyfin 12.0)
+Jellyfin 12.0 jumps to net10.0 + `Jellyfin.Controller` 12.0, binary-incompatible with our net9.0 / 10.11
+build. But `targetAbi` only gates on `serverVersion >= targetAbi`, so `10.11.11.0` *passes* on a 12.0
+server — the catalog installs it, then it fails to load at runtime. Lesson: never bump `targetAbi` to
+"support" a newer major; a new major needs its own build (framework + host-assembly refs) on a separate
+(unstable) channel. Details + the deferral decision: `docs/jellyfin-12-compat.md`.

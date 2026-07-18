@@ -2,17 +2,35 @@
 
 A Jellyfin server plugin that resolves the community score of an external source — initially
 **MyAnimeList**, via the [mdblist](https://mdblist.com) API — and writes it into Jellyfin's standard
-`CommunityRating` field. Targets **Jellyfin 10.11.11** (`net9.0`).
+`CommunityRating` field. Targets **Jellyfin 10.11.x** (`net9.0`). (Jellyfin 12.0 needs a separate
+net10.0 build — see [docs/jellyfin-12-compat.md](docs/jellyfin-12-compat.md).)
 
 ## What it does
 
 - Looks up each configured item (Movies/Series) by its Tmdb/Imdb/Tvdb id through mdblist and reads
   the native MyAnimeList `value` (0–10 scale).
-- Writes the score into `CommunityRating` (Plan A: `ItemUpdateType.None`).
+- Writes the score into `CommunityRating` using `ItemUpdateType.MetadataEdit`, so a per-library NFO
+  saver (if enabled) rewrites the `<rating>` and the DB and NFO stay consistent.
 - Caches results (positive + negative), batches lookups, and stays within a daily request budget,
   with a shared circuit breaker that pauses on repeated errors / HTTP 429.
-- Runs on demand (scheduled task) and automatically after library scans; a realtime listener is
-  planned.
+- Three triggers: an on-demand scheduled task, an automatic pass after each library scan, and a
+  realtime item listener that enriches items as they change (debounced, self-write-guarded, and it
+  ignores manual edits so it never fights the user).
+- **Respects locked items:** an item with metadata locked (`IsLocked`) is never overwritten, so
+  locking is the durable way to protect a hand-set rating.
+- **Admin actions** on the config page: *Run enrichment now*, *Restore all original ratings* (resets
+  every plugin-changed rating to the value it had before, from the backup), and *Clear rating cache*.
+
+## Install from the plugin repository
+
+In Jellyfin: **Dashboard → Plugins → Repositories → +** and add this manifest URL:
+
+```
+https://raw.githubusercontent.com/fatSquirrel42/jellyfin-plugin-externalratings/main/manifest.json
+```
+
+Then **Catalog → Metadata → External Ratings → Install** and restart Jellyfin. Releasing a new version is
+documented in [RELEASING.md](RELEASING.md).
 
 ## Build & install for local testing
 
@@ -47,9 +65,10 @@ status endpoint `GET /Plugins/ExternalRatings/Status` reports the last run's cou
 
 ## Verification & write-reason check
 
-The write path uses `ItemUpdateType.None`; the manual verification that the score persists without
-touching NFO files (the Plan A vs. Plan B decision) is documented in
-[docs/V2-verification.md](docs/V2-verification.md).
+The write path uses `ItemUpdateType.MetadataEdit` (Plan B), so the change flows through the host's
+per-library metadata savers and keeps the DB and any NFO `<rating>` consistent. The live verification
+behind that decision — and the step-10 checks for locked-item protection, restore, and clear-cache — is
+documented in [docs/V2-verification.md](docs/V2-verification.md).
 
 ## Development
 
