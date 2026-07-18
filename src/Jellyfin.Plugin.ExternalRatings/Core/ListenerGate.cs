@@ -14,6 +14,7 @@ internal static class ListenerGate
     /// <param name="isAdd">Whether the event is an item-add (new item) rather than an update.</param>
     /// <param name="reason">The mapped change reason (ignored for adds).</param>
     /// <param name="isRecentSelfWrite">Whether the item was written by the plugin itself very recently.</param>
+    /// <param name="isLocked">Whether the item is locked (user-protected metadata).</param>
     /// <returns>The gate decision.</returns>
     public static GateDecision Evaluate(
         bool enabled,
@@ -21,7 +22,8 @@ internal static class ListenerGate
         bool breakerOpen,
         bool isAdd,
         ItemChangeReason reason,
-        bool isRecentSelfWrite)
+        bool isRecentSelfWrite,
+        bool isLocked)
     {
         if (!enabled)
         {
@@ -36,6 +38,13 @@ internal static class ListenerGate
         if (breakerOpen)
         {
             return GateDecision.SkipCircuitOpen;
+        }
+
+        // A locked item is user-protected: never overwrite its rating, regardless of add/update or reason
+        // (spec §15 step 10). Checked before the self-write guard so lock always wins.
+        if (isLocked)
+        {
+            return GateDecision.SkipLocked;
         }
 
         if (isRecentSelfWrite)

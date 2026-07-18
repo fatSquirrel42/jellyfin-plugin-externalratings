@@ -227,6 +227,13 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             return;
         }
 
+        // A locked item is user-protected; never overwrite its rating (spec §15 step 10). Defensive:
+        // the listener gate already drops locked items, but the facade is the enforcement point.
+        if (baseItem.IsLocked)
+        {
+            return;
+        }
+
         if (!IsInEnabledLibrary(baseItem, config.EnabledLibraries))
         {
             return;
@@ -410,12 +417,21 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 continue;
             }
 
+            // Record every item as "live" first — even locked ones — so the orphan-prune (which deletes
+            // backups not in liveIds) never strands a locked item's protected original rating. Only after
+            // that do we skip locked items from enrichment (spec §15 step 10): a locked item is
+            // user-protected, so the full pass must not overwrite its rating.
+            liveIds.Add(baseItem.Id);
+            if (baseItem.IsLocked)
+            {
+                continue;
+            }
+
             items.Add(new RatingWorkItem(
                 new RatingItemRef(baseItem.Id, baseItem.Name),
                 level.Value,
                 ExtractProviderIds(baseItem),
                 TargetSource));
-            liveIds.Add(baseItem.Id);
         }
 
         return (items, liveIds);
