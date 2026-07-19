@@ -15,6 +15,12 @@ on:
 
 jobs:
   call:
+    # Code scanning upload requires code scanning to be enabled, which needs a PUBLIC repo (CodeQL is
+    # free for public repos; private repos need GitHub Advanced Security, unavailable on personal
+    # accounts). While this repo is private the scan can't upload, so skip the job entirely instead of
+    # failing. When the repo is made public this guard becomes true and CodeQL runs again with no
+    # further changes.
+    if: ${{ github.event.repository.visibility == 'public' }}
     # The reusable workflow declares no permissions, so the called job runs with the repo's
     # (restrictive) default GITHUB_TOKEN. CodeQL's analyze step needs these to upload SARIF and read
     # the workflow run — without them the scan runs but fails at the end with
