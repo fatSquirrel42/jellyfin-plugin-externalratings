@@ -17,8 +17,6 @@ internal static class PluginConfigurationMapper
     /// </summary>
     public const string NoSource = "none";
 
-    private static readonly IReadOnlyList<ItemLevel> DefaultLevels = new[] { ItemLevel.Movie, ItemLevel.Series };
-
     /// <summary>Builds <see cref="PipelineOptions"/> from the configuration.</summary>
     /// <param name="config">The plugin configuration.</param>
     /// <returns>The pipeline options; unknown enum strings fall back to their spec defaults.</returns>
@@ -34,28 +32,6 @@ internal static class PluginConfigurationMapper
             CacheTtl = TimeSpan.FromDays(config.CacheTtlDays),
             NegativeCacheTtl = TimeSpan.FromDays(config.NegativeCacheTtlDays)
         };
-    }
-
-    /// <summary>Parses the configured processed levels into the internal enum.</summary>
-    /// <param name="config">The plugin configuration.</param>
-    /// <returns>
-    /// The distinct, valid levels in configured order; falls back to Movie and Series when the
-    /// configuration is empty or contains no recognized level.
-    /// </returns>
-    public static IReadOnlyList<ItemLevel> ParseLevels(PluginConfiguration config)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-
-        var result = new List<ItemLevel>();
-        foreach (var raw in config.ProcessedLevels)
-        {
-            if (Enum.TryParse<ItemLevel>(raw, ignoreCase: true, out var level) && !result.Contains(level))
-            {
-                result.Add(level);
-            }
-        }
-
-        return result.Count == 0 ? DefaultLevels : result;
     }
 
     /// <summary>Whether the resolved source means enrichment should be skipped.</summary>

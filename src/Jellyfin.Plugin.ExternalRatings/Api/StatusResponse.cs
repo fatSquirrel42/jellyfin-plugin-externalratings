@@ -21,9 +21,9 @@ public class StatusResponse
     public string ActiveResolverKey { get; init; } = string.Empty;
 
     /// <summary>
-    /// Gets the effective processed levels (after mapper defaulting).
+    /// Gets the item levels the active resolver supports (its capability feature flag).
     /// </summary>
-    public IReadOnlyList<string> ProcessedLevels { get; init; } = new List<string>();
+    public IReadOnlyList<string> SupportedLevels { get; init; } = new List<string>();
 
     /// <summary>
     /// Gets the configured daily HTTP request limit.

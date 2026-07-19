@@ -57,8 +57,7 @@ public class StatusController : ControllerBase
         {
             DryRun = config.DryRun,
             ActiveResolverKey = config.ActiveResolverKey,
-            ProcessedLevels = PluginConfigurationMapper.ParseLevels(config)
-                .Select(level => level.ToString()).ToList(),
+            SupportedLevels = _enrichmentService.GetSupportedLevels(),
             DailyRequestLimit = config.DailyRequestLimit,
             WriteReasonPlan = "B (ItemUpdateType.MetadataEdit)",
             LibrariesWithNfoSaver = librariesWithNfo,

@@ -1,14 +1,27 @@
 using System;
+using System.Net.Http;
 using FluentAssertions;
 using Jellyfin.Plugin.ExternalRatings;
 using Jellyfin.Plugin.ExternalRatings.Core;
+using Jellyfin.Plugin.ExternalRatings.Resolvers;
 using Jellyfin.Data.Enums;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Jellyfin.Plugin.ExternalRatings.Tests;
 
 public class RatingEnrichmentServiceTests
 {
+    [Fact]
+    public void SupportedLevels_MdblistResolver_IsMovieAndSeriesOnly()
+    {
+        // The processed levels are driven by the resolver's capability flag (SupportedInputProviders),
+        // not by config. mdblist supports only Movie and Series (no season/episode scores).
+        var resolver = new MdblistResolver(new HttpClient(), string.Empty, NullLogger<MdblistResolver>.Instance);
+
+        RatingEnrichmentService.SupportedLevels(resolver).Should().Equal(ItemLevel.Movie, ItemLevel.Series);
+    }
+
     [Fact]
     public void BuildLibraryQuery_FiltersByAncestorIds_NotTopParentIds()
     {
