@@ -29,15 +29,65 @@ public class MdblistResolverTests
     private static RatingRequest Request(ItemLevel level, string provider, string id)
         => new(level, provider, id, "myanimelist");
 
+    private static RatingRequest Request(ItemLevel level, string provider, string id, string source)
+        => new(level, provider, id, source);
+
     [Fact]
-    public async Task ResolveAsync_MovieFound_ReturnsNativeMalValue()
+    public async Task ResolveAsync_MovieFound_ReturnsNormalizedScore()
     {
         var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, Golden("movie_found.json"));
 
         var result = await Build(handler).ResolveAsync(Request(ItemLevel.Movie, "Tmdb", "129"), CancellationToken.None);
 
         result.Resolution.Should().Be(RatingResolution.Found);
-        result.Score.Should().BeApproximately(8.7f, 0.001f); // the MAL value, not score (87)
+        result.Score.Should().BeApproximately(8.7f, 0.001f); // MAL score 87 normalized to 0–10
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ZeroToHundredSource_IsNormalizedToTen()
+    {
+        var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, Golden("movie_found.json"));
+
+        var result = await Build(handler).ResolveAsync(
+            Request(ItemLevel.Movie, "Tmdb", "129", "metacritic"), CancellationToken.None);
+
+        result.Resolution.Should().Be(RatingResolution.Found);
+        result.Score.Should().BeApproximately(9.6f, 0.001f); // metacritic score 96 → 9.6
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ZeroToFiveSource_IsNormalizedToTen()
+    {
+        var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, Golden("movie_found.json"));
+
+        var result = await Build(handler).ResolveAsync(
+            Request(ItemLevel.Movie, "Tmdb", "129", "letterboxd"), CancellationToken.None);
+
+        result.Resolution.Should().Be(RatingResolution.Found);
+        result.Score.Should().BeApproximately(8.8f, 0.001f); // letterboxd score 88 → 8.8
+    }
+
+    [Fact]
+    public async Task ResolveAsync_SourceWithNullScore_IsNoMatch()
+    {
+        // rogerebert has a native value but no unified score in the fixture.
+        var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, Golden("movie_found.json"));
+
+        var result = await Build(handler).ResolveAsync(
+            Request(ItemLevel.Movie, "Tmdb", "129", "rogerebert"), CancellationToken.None);
+
+        result.Resolution.Should().Be(RatingResolution.NoMatch);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_UnknownSource_IsNoMatch()
+    {
+        var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, Golden("movie_found.json"));
+
+        var result = await Build(handler).ResolveAsync(
+            Request(ItemLevel.Movie, "Tmdb", "129", "nonexistent"), CancellationToken.None);
+
+        result.Resolution.Should().Be(RatingResolution.NoMatch);
     }
 
     [Fact]
@@ -141,7 +191,7 @@ public class MdblistResolverTests
     [Fact]
     public async Task ResolveAsync_OutOfRangeScore_ViolatesH14_IsError()
     {
-        var body = "{\"type\":\"movie\",\"ids\":{\"tmdb\":129},\"ratings\":[{\"source\":\"myanimelist\",\"value\":42.0}]}";
+        var body = "{\"type\":\"movie\",\"ids\":{\"tmdb\":129},\"ratings\":[{\"source\":\"myanimelist\",\"value\":42.0,\"score\":150.0}]}";
         var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, body);
 
         var result = await Build(handler).ResolveAsync(Request(ItemLevel.Movie, "Tmdb", "129"), CancellationToken.None);

@@ -18,7 +18,7 @@
                     <div id="nfoWarning" class="fieldDescription" style="display:none;padding:0.6em;margin-bottom:1em;background:#6a1b1b;color:#fff;border-radius:4px;"></div>
 
                     <h2>Libraries</h2>
-                    <div class="fieldDescription">Select the libraries this plugin is enabled for.</div>
+                    <div class="fieldDescription">Select the libraries this plugin is enabled for. Optionally pick a rating source per library; libraries left on &ldquo;(Use default)&rdquo; use the default source below.</div>
                     <div id="enabledLibraries"></div>
 
                     <h2>Resolver</h2>
@@ -26,6 +26,11 @@
                         <label class="inputLabel inputLabelUnfocused" for="MdblistApiKey">mdblist API key</label>
                         <input id="MdblistApiKey" name="MdblistApiKey" type="password" is="emby-input" autocomplete="off" />
                         <div class="fieldDescription">Stored in plaintext in the plugin configuration file (server file permissions apply).</div>
+                    </div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="RatingSource">Default rating source</label>
+                        <select is="emby-select" id="RatingSource" name="RatingSource" class="emby-select-withcolor emby-select"></select>
+                        <div id="ratingSourceHint" class="fieldDescription" style="display:none;"></div>
                     </div>
 
                     <h2>Processed levels</h2>
@@ -141,7 +146,65 @@
                 var pluginUniqueId = '54015a93-7e43-4406-adcf-a15cc251dff1';
                 var apiKeyName = 'mdblist.apiKey';
                 var levelIds = ['LevelMovie', 'LevelSeries', 'LevelSeason', 'LevelEpisode'];
+                // Selectable mdblist rating sources. `rescaled` marks sources whose native scale differs
+                // from Jellyfin's 0-10, so the UI can warn that the value is converted (via mdblist's
+                // unified 0-100 score, divided by 10). Sources flagged false map 1:1 to 0-10.
+                var KNOWN_SOURCES = [
+                    { value: 'imdb', label: 'IMDb', scale: '0–10', rescaled: false },
+                    { value: 'myanimelist', label: 'MyAnimeList', scale: '0–10', rescaled: false },
+                    { value: 'metacriticuser', label: 'Metacritic (user score)', scale: '0–10', rescaled: false },
+                    { value: 'trakt', label: 'Trakt', scale: '0–100', rescaled: true },
+                    { value: 'tmdb', label: 'TMDb', scale: '0–100', rescaled: true },
+                    { value: 'metacritic', label: 'Metacritic (critic score)', scale: '0–100', rescaled: true },
+                    { value: 'tomatoes', label: 'Rotten Tomatoes (critics)', scale: '0–100', rescaled: true },
+                    { value: 'popcorn', label: 'Rotten Tomatoes (audience)', scale: '0–100', rescaled: true },
+                    { value: 'letterboxd', label: 'Letterboxd', scale: '0–5', rescaled: true },
+                    { value: 'rogerebert', label: 'Roger Ebert', scale: '0–4', rescaled: true }
+                ];
                 var page;
+
+                function sourceByValue(value) {
+                    for (var i = 0; i < KNOWN_SOURCES.length; i++) {
+                        if (KNOWN_SOURCES[i].value === value) {
+                            return KNOWN_SOURCES[i];
+                        }
+                    }
+                    return null;
+                }
+
+                function sourceHintText(value) {
+                    var s = sourceByValue(value);
+                    if (!s || !s.rescaled) {
+                        return '';
+                    }
+                    return s.label + ' uses a ' + s.scale + ' scale; ratings are converted to Jellyfin’s 0–10.';
+                }
+
+                function fillSourceOptions(selectEl, includeDefaultOption) {
+                    selectEl.innerHTML = '';
+                    if (includeDefaultOption) {
+                        var def = document.createElement('option');
+                        def.value = '';
+                        def.textContent = '(Use default)';
+                        selectEl.appendChild(def);
+                    }
+                    KNOWN_SOURCES.forEach(function (s) {
+                        var opt = document.createElement('option');
+                        opt.value = s.value;
+                        opt.textContent = s.label;
+                        selectEl.appendChild(opt);
+                    });
+                }
+
+                function librarySourceFor(config, libraryId) {
+                    var list = config.LibrarySources || [];
+                    for (var i = 0; i < list.length; i++) {
+                        if (list[i].LibraryId === libraryId) {
+                            return list[i].Source;
+                        }
+                    }
+                    return '';
+                }
 
                 function getResolverSetting(config, key) {
                     var list = config.ResolverSettings || [];
@@ -187,6 +250,26 @@
                         label.appendChild(input);
                         label.appendChild(span);
                         wrapper.appendChild(label);
+
+                        var sourceSelect = document.createElement('select');
+                        sourceSelect.setAttribute('is', 'emby-select');
+                        sourceSelect.className = 'librarySourceSelect emby-select';
+                        sourceSelect.setAttribute('data-itemid', folder.ItemId);
+                        sourceSelect.style.marginLeft = '1.8em';
+                        fillSourceOptions(sourceSelect, true);
+                        sourceSelect.value = librarySourceFor(config, folder.ItemId);
+
+                        var hint = document.createElement('div');
+                        hint.className = 'fieldDescription';
+                        hint.style.marginLeft = '1.8em';
+                        hint.textContent = sourceHintText(sourceSelect.value);
+
+                        sourceSelect.addEventListener('change', function () {
+                            hint.textContent = sourceHintText(sourceSelect.value);
+                        });
+
+                        wrapper.appendChild(sourceSelect);
+                        wrapper.appendChild(hint);
                         container.appendChild(wrapper);
                     });
                 }
@@ -219,6 +302,14 @@
                         renderLibraries(config, folders);
                         page.querySelector('#MdblistApiKey').value = getResolverSetting(config, apiKeyName);
 
+                        var ratingSourceSelect = page.querySelector('#RatingSource');
+                        fillSourceOptions(ratingSourceSelect, false);
+                        ratingSourceSelect.value = config.RatingSource || 'myanimelist';
+                        var ratingSourceHint = page.querySelector('#ratingSourceHint');
+                        var defaultHint = sourceHintText(ratingSourceSelect.value);
+                        ratingSourceHint.textContent = defaultHint;
+                        ratingSourceHint.style.display = defaultHint ? '' : 'none';
+
                         var levels = config.ProcessedLevels || [];
                         levelIds.forEach(function (id) {
                             var el = page.querySelector('#' + id);
@@ -250,6 +341,19 @@
                             }
                         });
                         config.EnabledLibraries = enabled;
+
+                        config.RatingSource = page.querySelector('#RatingSource').value;
+
+                        // Persist only non-default (overriding) library selections; libraries on
+                        // "(Use default)" fall back to RatingSource, keeping the list minimal.
+                        var librarySources = [];
+                        page.querySelectorAll('.librarySourceSelect').forEach(function (el) {
+                            var val = el.value;
+                            if (val) {
+                                librarySources.push({ LibraryId: el.getAttribute('data-itemid'), Source: val });
+                            }
+                        });
+                        config.LibrarySources = librarySources;
 
                         setResolverSetting(config, apiKeyName, page.querySelector('#MdblistApiKey').value);
 
@@ -344,6 +448,13 @@
                         e.preventDefault();
                         return false;
                     });
+
+                document.querySelector('#RatingSource').addEventListener('change', function () {
+                    var hintEl = page.querySelector('#ratingSourceHint');
+                    var text = sourceHintText(this.value);
+                    hintEl.textContent = text;
+                    hintEl.style.display = text ? '' : 'none';
+                });
 
                 document.querySelector('#RunNowButton').addEventListener('click', runNow);
                 document.querySelector('#RestoreAllButton').addEventListener('click', restoreAll);

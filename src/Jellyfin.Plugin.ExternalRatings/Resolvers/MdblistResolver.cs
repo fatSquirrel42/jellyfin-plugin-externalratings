@@ -281,24 +281,27 @@ internal sealed class MdblistResolver : IBatchRatingResolver
         var rating = media?.Ratings?
             .FirstOrDefault(r => string.Equals(r.Source, targetSource, StringComparison.OrdinalIgnoreCase));
 
-        if (rating?.Value is not double value)
+        // mdblist normalizes every source onto a unified 0–100 `score`, so reading it (and dividing by
+        // 10) yields Jellyfin's 0–10 CommunityRating for any source without a per-source scale table. A
+        // source can carry a native `value` but no `score` (for example rogerebert) — treated as NoMatch.
+        if (rating?.Score is not double score)
         {
             _logger.LogDebug("mdblist {Mode} {Url} -> NoMatch", mode, MdblistUrls.MaskApiKey(url));
             return RatingResult.NoMatch();
         }
 
-        if (value is < 0 or > 10)
+        if (score is < 0 or > 100)
         {
-            // H14: Found ⇒ 0 ≤ score ≤ 10. An out-of-range value is a resolver/source bug.
+            // H14: Found ⇒ 0 ≤ score ≤ 10 after normalization. An out-of-range source score is a bug.
             _logger.LogError(
                 "mdblist {Mode} {Url} returned out-of-range score {Score}",
                 mode,
                 MdblistUrls.MaskApiKey(url),
-                value.ToString(CultureInfo.InvariantCulture));
+                score.ToString(CultureInfo.InvariantCulture));
             return RatingResult.ForError("out-of-range score");
         }
 
-        return RatingResult.ForScore((float)value);
+        return RatingResult.ForScore((float)(score / 10.0));
     }
 
     private Dictionary<string, RatingResult> ChunkError(

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -28,7 +29,6 @@ namespace Jellyfin.Plugin.ExternalRatings;
 /// </summary>
 public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
 {
-    private const string TargetSource = "myanimelist";
     private const string ApiKeySettingKey = "mdblist.apiKey";
     private const int DefaultDailyLimit = 1000;
 
@@ -266,11 +266,15 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             return;
         }
 
+        var source = PluginConfigurationMapper.ResolveSource(
+            config,
+            _libraryManager.GetCollectionFolders(baseItem).Select(f => f.Id));
+
         var workItem = new RatingWorkItem(
             new RatingItemRef(baseItem.Id, baseItem.Name),
             level.Value,
             ExtractProviderIds(baseItem),
-            TargetSource);
+            source);
 
         var (_, pipeline) = GetOrBuildPipeline(apiKey);
         var runner = new SingleItemEnrichmentRunner(pipeline, new Logger<SingleItemEnrichmentRunner>(_loggerFactory));
@@ -527,6 +531,11 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     {
         var query = BuildLibraryQuery(PluginConfigurationMapper.ParseLevels(config), config.EnabledLibraries);
 
+        // Resolve each item's source per its library. With no overrides configured, every item uses the
+        // default, so skip the per-item GetCollectionFolders lookup entirely.
+        var hasOverrides = config.LibrarySources.Length > 0;
+        var defaultSource = PluginConfigurationMapper.ResolveSource(config, Array.Empty<Guid>());
+
         var items = new List<RatingWorkItem>();
         var liveIds = new HashSet<Guid>();
         foreach (var baseItem in _libraryManager.GetItemList(query))
@@ -547,11 +556,15 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 continue;
             }
 
+            var source = hasOverrides
+                ? PluginConfigurationMapper.ResolveSource(config, _libraryManager.GetCollectionFolders(baseItem).Select(f => f.Id))
+                : defaultSource;
+
             items.Add(new RatingWorkItem(
                 new RatingItemRef(baseItem.Id, baseItem.Name),
                 level.Value,
                 ExtractProviderIds(baseItem),
-                TargetSource));
+                source));
         }
 
         return (items, liveIds);
