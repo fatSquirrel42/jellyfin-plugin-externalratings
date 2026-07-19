@@ -28,11 +28,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public Guid[] EnabledLibraries { get; set; } = Array.Empty<Guid>();
 
     /// <summary>
-    /// Gets or sets the genre filter (ANY match, case-insensitive; spec §10.1).
-    /// </summary>
-    public string[] GenreFilter { get; set; } = Array.Empty<string>();
-
-    /// <summary>
     /// Gets or sets the resolver settings (for example the mdblist API key), keyed by string.
     /// </summary>
     public ResolverSetting[] ResolverSettings { get; set; } = Array.Empty<ResolverSetting>();

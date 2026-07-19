@@ -45,7 +45,6 @@ public class ConfigRoundtripTests
         config.EnableRealtimeListener.Should().BeTrue();
         config.DryRun.Should().BeTrue();
         config.EnabledLibraries.Should().BeEmpty();
-        config.GenreFilter.Should().BeEmpty();
         config.ResolverSettings.Should().BeEmpty();
     }
 
@@ -69,7 +68,6 @@ public class ConfigRoundtripTests
                 Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 Guid.Parse("22222222-2222-2222-2222-222222222222")
             },
-            GenreFilter = new[] { "Anime", "Animation" },
             ActiveResolverKey = "mdblist",
             ResolverSettings = new[]
             {
