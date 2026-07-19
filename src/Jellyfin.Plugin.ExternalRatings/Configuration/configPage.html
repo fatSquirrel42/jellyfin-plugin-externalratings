@@ -123,27 +123,17 @@
             (function () {
                 var pluginUniqueId = '54015a93-7e43-4406-adcf-a15cc251dff1';
                 var apiKeyName = 'mdblist.apiKey';
-                // Selectable mdblist rating sources. `rescaled` marks sources whose native scale differs
-                // from Jellyfin's 0-10, so the UI can warn that the value is converted (via mdblist's
-                // unified 0-100 score, divided by 10). Sources flagged false map 1:1 to 0-10.
-                var KNOWN_SOURCES = [
-                    { value: 'imdb', label: 'IMDb', scale: '0–10', rescaled: false },
-                    { value: 'myanimelist', label: 'MyAnimeList', scale: '0–10', rescaled: false },
-                    { value: 'metacriticuser', label: 'Metacritic (user score)', scale: '0–10', rescaled: false },
-                    { value: 'trakt', label: 'Trakt', scale: '0–100', rescaled: true },
-                    { value: 'tmdb', label: 'TMDb', scale: '0–100', rescaled: true },
-                    { value: 'metacritic', label: 'Metacritic (critic score)', scale: '0–100', rescaled: true },
-                    { value: 'tomatoes', label: 'Rotten Tomatoes (critics)', scale: '0–100', rescaled: true },
-                    { value: 'popcorn', label: 'Rotten Tomatoes (audience)', scale: '0–100', rescaled: true },
-                    { value: 'letterboxd', label: 'Letterboxd', scale: '0–5', rescaled: true },
-                    { value: 'rogerebert', label: 'Roger Ebert', scale: '0–4', rescaled: true }
-                ];
+                // Selectable rating sources are the active resolver's capability, fetched from the Status
+                // endpoint (see loadConfig) rather than hardcoded here. Each entry is { Key, DisplayName,
+                // Scale, Rescaled }; `Rescaled` marks sources whose native scale differs from Jellyfin's
+                // 0–10, so the UI can warn that the value is converted.
+                var sources = [];
                 var page;
 
                 function sourceByValue(value) {
-                    for (var i = 0; i < KNOWN_SOURCES.length; i++) {
-                        if (KNOWN_SOURCES[i].value === value) {
-                            return KNOWN_SOURCES[i];
+                    for (var i = 0; i < sources.length; i++) {
+                        if (sources[i].Key === value) {
+                            return sources[i];
                         }
                     }
                     return null;
@@ -154,10 +144,10 @@
                         return 'Community ratings are left unchanged, except for libraries that select their own source below.';
                     }
                     var s = sourceByValue(value);
-                    if (!s || !s.rescaled) {
+                    if (!s || !s.Rescaled) {
                         return '';
                     }
-                    return s.label + ' uses a ' + s.scale + ' scale; ratings are converted to Jellyfin’s 0–10.';
+                    return s.DisplayName + ' uses a ' + s.Scale + ' scale; ratings are converted to Jellyfin’s 0–10.';
                 }
 
                 function fillSourceOptions(selectEl, includeDefaultOption) {
@@ -168,10 +158,10 @@
                         def.textContent = '(Use default)';
                         selectEl.appendChild(def);
                     }
-                    KNOWN_SOURCES.forEach(function (s) {
+                    sources.forEach(function (s) {
                         var opt = document.createElement('option');
-                        opt.value = s.value;
-                        opt.textContent = s.label;
+                        opt.value = s.Key;
+                        opt.textContent = s.DisplayName;
                         selectEl.appendChild(opt);
                     });
                 }
@@ -272,30 +262,41 @@
                     });
                 }
 
-                function loadStatus() {
-                    ApiClient.ajax({
+                function statusPromise() {
+                    return ApiClient.ajax({
                         type: 'GET',
                         url: ApiClient.getUrl('Plugins/ExternalRatings/Status'),
                         dataType: 'json'
-                    }).then(function (status) {
-                        var warning = page.querySelector('#nfoWarning');
-                        if (status.NfoWritesPossible) {
-                            warning.textContent = 'Warning: these libraries have an active NFO saver, so rating writes may create or update NFO files in the media folders: '
-                                + status.LibrariesWithNfoSaver.join(', ') + '.';
-                            warning.style.display = '';
-                        } else {
-                            warning.style.display = 'none';
-                        }
                     });
+                }
+
+                function applyStatus(status) {
+                    var warning = page.querySelector('#nfoWarning');
+                    if (status.NfoWritesPossible) {
+                        warning.textContent = 'Warning: these libraries have an active NFO saver, so rating writes may create or update NFO files in the media folders: '
+                            + status.LibrariesWithNfoSaver.join(', ') + '.';
+                        warning.style.display = '';
+                    } else {
+                        warning.style.display = 'none';
+                    }
+                }
+
+                function loadStatus() {
+                    statusPromise().then(applyStatus);
                 }
 
                 function loadConfig() {
                     Dashboard.showLoadingMsg();
                     var configPromise = ApiClient.getPluginConfiguration(pluginUniqueId);
                     var foldersPromise = ApiClient.getVirtualFolders();
-                    Promise.all([configPromise, foldersPromise]).then(function (results) {
+                    Promise.all([configPromise, foldersPromise, statusPromise()]).then(function (results) {
                         var config = results[0];
                         var folders = results[1];
+                        var status = results[2];
+
+                        // The selectable rating sources come from the active resolver's capability, so the
+                        // dropdowns must be populated from the status response before rendering them.
+                        sources = status.SupportedSources || [];
 
                         renderLibraries(config, folders);
                         page.querySelector('#MdblistApiKey').value = getResolverSetting(config, apiKeyName);
@@ -322,8 +323,8 @@
                         page.querySelector('#DryRun').checked = config.DryRun;
                         page.querySelector('#dryRunBanner').style.display = config.DryRun ? '' : 'none';
 
+                        applyStatus(status);
                         Dashboard.hideLoadingMsg();
-                        loadStatus();
                     });
                 }
 

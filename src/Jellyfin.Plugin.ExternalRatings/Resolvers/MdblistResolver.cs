@@ -27,6 +27,23 @@ internal sealed class MdblistResolver : IBatchRatingResolver
         PropertyNameCaseInsensitive = true
     };
 
+    // The rating sources mdblist exposes in a media object's `ratings[].source`, with their native
+    // scales (for the UI conversion hint). `rescaled` marks sources whose native scale differs from
+    // Jellyfin's 0–10. rogerebert is deliberately omitted: mdblist returns its native `value` but no
+    // unified `score`, so ToResult always yields NoMatch — it would be a dead choice in the UI.
+    private static readonly IReadOnlyCollection<RatingSourceInfo> Sources = new[]
+    {
+        new RatingSourceInfo("imdb", "IMDb", "0–10", false),
+        new RatingSourceInfo("myanimelist", "MyAnimeList", "0–10", false),
+        new RatingSourceInfo("metacriticuser", "Metacritic (user score)", "0–10", false),
+        new RatingSourceInfo("trakt", "Trakt", "0–100", true),
+        new RatingSourceInfo("tmdb", "TMDb", "0–100", true),
+        new RatingSourceInfo("metacritic", "Metacritic (critic score)", "0–100", true),
+        new RatingSourceInfo("tomatoes", "Rotten Tomatoes (critics)", "0–100", true),
+        new RatingSourceInfo("popcorn", "Rotten Tomatoes (audience)", "0–100", true),
+        new RatingSourceInfo("letterboxd", "Letterboxd", "0–5", true)
+    };
+
     private readonly HttpClient _httpClient;
     private readonly string _apiKey;
     private readonly ILogger<MdblistResolver> _logger;
@@ -58,6 +75,9 @@ internal sealed class MdblistResolver : IBatchRatingResolver
             [ItemLevel.Movie] = InputIdSelector.ProviderPriority(ItemLevel.Movie),
             [ItemLevel.Series] = InputIdSelector.ProviderPriority(ItemLevel.Series)
         };
+
+    /// <inheritdoc />
+    public IReadOnlyCollection<RatingSourceInfo> SupportedRatingSources => Sources;
 
     /// <inheritdoc />
     public async Task<RatingResult> ResolveAsync(RatingRequest request, CancellationToken cancellationToken)
