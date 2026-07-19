@@ -21,12 +21,6 @@
                     <div class="fieldDescription">Select the libraries this plugin is enabled for.</div>
                     <div id="enabledLibraries"></div>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="GenreFilter">Genre filter</label>
-                        <input id="GenreFilter" name="GenreFilter" type="text" is="emby-input" />
-                        <div class="fieldDescription">Comma-separated genres (ANY match, case-insensitive). Leave empty to process all items.</div>
-                    </div>
-
                     <h2>Resolver</h2>
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="MdblistApiKey">mdblist API key</label>
@@ -223,7 +217,6 @@
                         var folders = results[1];
 
                         renderLibraries(config, folders);
-                        page.querySelector('#GenreFilter').value = (config.GenreFilter || []).join(', ');
                         page.querySelector('#MdblistApiKey').value = getResolverSetting(config, apiKeyName);
 
                         var levels = config.ProcessedLevels || [];
@@ -257,10 +250,6 @@
                             }
                         });
                         config.EnabledLibraries = enabled;
-
-                        config.GenreFilter = page.querySelector('#GenreFilter').value
-                            .split(',').map(function (s) { return s.trim(); })
-                            .filter(function (s) { return s.length > 0; });
 
                         setResolverSetting(config, apiKeyName, page.querySelector('#MdblistApiKey').value);
 

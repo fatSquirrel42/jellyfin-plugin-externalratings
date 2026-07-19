@@ -537,10 +537,10 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 continue;
             }
 
-            // Record every item as "live" first — even locked ones — so the orphan-prune (which deletes
-            // backups not in liveIds) never strands a locked item's protected original rating. Only after
-            // that do we skip locked items from enrichment (spec §15 step 10): a locked item is
-            // user-protected, so the full pass must not overwrite its rating.
+            // Record every item as "live" first — even locked ones — so the orphan-prune
+            // (which deletes backups not in liveIds) never strands a still-existing item's protected
+            // original rating. Only after that do we skip locked items from enrichment (spec §15 step 10):
+            // a locked item is user-protected, so the full pass must not overwrite its rating.
             liveIds.Add(baseItem.Id);
             if (baseItem.IsLocked)
             {
