@@ -71,7 +71,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the behavior for authoritative no-matches
     /// (<c>LeaveExisting</c> or <c>ClearField</c>).
     /// </summary>
-    public string NoMatchBehavior { get; set; } = "LeaveExisting";
+    public string NoMatchBehavior { get; set; } = "ClearField";
 
     /// <summary>
     /// Gets or sets the behavior for unsupported levels (<c>Skip</c> or <c>ClearField</c>).
