@@ -128,6 +128,36 @@ public class CircuitBreakerTests
     }
 
     [Fact]
+    public void HalfOpen_AbandonProbe_AllowsAnotherProbe()
+    {
+        // Regression: a cancelled probe (no RecordSuccess/RecordError) used to leave the breaker stuck
+        // HalfOpen, refusing every future request until process restart. AbandonProbe releases the probe.
+        var clock = new FakeClock();
+        var cb = Create(clock);
+        cb.RecordRateLimited();
+        clock.Advance(Cooldown);
+
+        cb.AllowRequest().Should().BeTrue();   // probe granted
+        cb.AllowRequest().Should().BeFalse();  // second refused while the probe is outstanding
+
+        cb.AbandonProbe();
+
+        cb.State.Should().Be(CircuitState.HalfOpen);
+        cb.AllowRequest().Should().BeTrue();   // a fresh probe is handed out; the breaker is not wedged
+    }
+
+    [Fact]
+    public void AbandonProbe_WhenClosed_IsNoOp()
+    {
+        var cb = Create(new FakeClock());
+
+        cb.AbandonProbe();
+
+        cb.State.Should().Be(CircuitState.Closed);
+        cb.AllowRequest().Should().BeTrue();
+    }
+
+    [Fact]
     public void HalfOpen_ProbeError_Reopens_AndRestartsCooldown()
     {
         var clock = new FakeClock();

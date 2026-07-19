@@ -42,6 +42,14 @@ public class MdblistUrlsTests
     }
 
     [Fact]
+    public void BuildSingle_EscapesId_NeutralizingInjection()
+    {
+        // A crafted/malformed id must not inject query parameters or a fragment into the request.
+        MdblistUrls.BuildSingle("tmdb", "movie", "500?apikey=&x=#frag", "SECRET")
+            .Should().Be("tmdb/movie/500%3Fapikey%3D%26x%3D%23frag?apikey=SECRET");
+    }
+
+    [Fact]
     public void BuildBatch_ProducesProviderTypeWithKey()
     {
         MdblistUrls.BuildBatch("tmdb", "show", "SECRET")

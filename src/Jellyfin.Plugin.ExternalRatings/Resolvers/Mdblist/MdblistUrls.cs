@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.ExternalRatings.Core;
@@ -34,11 +35,12 @@ internal static class MdblistUrls
     /// <summary>Builds the single-item request path.</summary>
     /// <param name="provider">The mdblist provider segment.</param>
     /// <param name="type">The mdblist media type.</param>
-    /// <param name="id">The media id.</param>
+    /// <param name="id">The media id (URL-encoded so a malformed/crafted id cannot inject query
+    /// parameters or a fragment into the request; provider/type are a fixed allowlist and need none).</param>
     /// <param name="apiKey">The API key.</param>
     /// <returns>A relative request path.</returns>
     public static string BuildSingle(string provider, string type, string id, string apiKey)
-        => string.Format(CultureInfo.InvariantCulture, "{0}/{1}/{2}?apikey={3}", provider, type, id, apiKey);
+        => string.Format(CultureInfo.InvariantCulture, "{0}/{1}/{2}?apikey={3}", provider, type, Uri.EscapeDataString(id), apiKey);
 
     /// <summary>Builds the batch request path.</summary>
     /// <param name="provider">The mdblist provider segment.</param>

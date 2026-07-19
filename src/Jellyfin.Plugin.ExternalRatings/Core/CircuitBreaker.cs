@@ -127,6 +127,24 @@ internal sealed class CircuitBreaker
         }
     }
 
+    /// <summary>
+    /// Releases a half-open probe that ended without a success or error verdict (for example when the
+    /// probing request was cancelled). Without this, a cancelled probe would leave
+    /// <see cref="_probeOutstanding"/> set forever, so the breaker would stay HalfOpen and refuse every
+    /// subsequent request until the process restarts. Resets only the probe flag; the state stays
+    /// HalfOpen so the next caller is handed a fresh probe. A no-op when no probe is outstanding.
+    /// </summary>
+    public void AbandonProbe()
+    {
+        lock (_gate)
+        {
+            if (_state == CircuitState.HalfOpen)
+            {
+                _probeOutstanding = false;
+            }
+        }
+    }
+
     private CircuitState EffectiveState()
     {
         if (_state == CircuitState.Open && _clock.UtcNow - _openedAt >= _cooldown)

@@ -20,6 +20,13 @@ internal interface ICacheFileStore
     /// <returns>A task that completes once the write is durable.</returns>
     Task WriteAtomicAsync(byte[] content, CancellationToken cancellationToken);
 
+    /// <summary>Appends bytes to the file (creating it if needed). Used by the write-ahead backup log so
+    /// each new backup is an O(1) append rather than a full-file rewrite.</summary>
+    /// <param name="content">The bytes to append (typically one JSON record plus a newline).</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task that completes once the append is durable.</returns>
+    Task AppendAsync(byte[] content, CancellationToken cancellationToken);
+
     /// <summary>Deletes the file if it exists.</summary>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A task that completes once deletion is durable.</returns>

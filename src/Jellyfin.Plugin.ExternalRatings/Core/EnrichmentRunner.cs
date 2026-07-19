@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.ExternalRatings.Core.Abstractions;
@@ -97,9 +98,22 @@ internal sealed class EnrichmentRunner
         }
         finally
         {
+            // In-memory prunes are cheap and cannot fail.
+            _pipeline.PruneExpiredErrors();
             _cache.PruneExpired();
-            _backup.PruneOrphans(liveItemIds);
-            await _cache.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+            // Persist cleanup with CancellationToken.None so it still runs when the run was cancelled,
+            // and guard the I/O so a flush/prune failure neither masks an in-flight exception nor faults
+            // the run — the DB writes already stand and the next run re-flushes/re-prunes.
+            try
+            {
+                await _backup.PruneOrphansAsync(liveItemIds, CancellationToken.None).ConfigureAwait(false);
+                await _cache.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogError(ex, "External Ratings run {RunId}: end-of-run persistence failed", summary.RunId);
+            }
         }
 
         _logger.LogInformation(

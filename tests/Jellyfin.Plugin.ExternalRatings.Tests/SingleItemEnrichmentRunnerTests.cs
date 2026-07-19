@@ -46,7 +46,7 @@ public class SingleItemEnrichmentRunnerTests
         Func<PipelineOptions> options = () => new PipelineOptions { DryRun = dryRun };
         var pipeline = new RatingPipeline(
             resolver, writer, backup, cache, clock, breaker, options, NullLogger<RatingPipeline>.Instance);
-        var runner = new SingleItemEnrichmentRunner(pipeline, cache, NullLogger<SingleItemEnrichmentRunner>.Instance);
+        var runner = new SingleItemEnrichmentRunner(pipeline, NullLogger<SingleItemEnrichmentRunner>.Instance);
         return new Harness
         {
             Runner = runner,
@@ -101,14 +101,15 @@ public class SingleItemEnrichmentRunnerTests
     }
 
     [Fact]
-    public async Task FlushesCache_AfterRun()
+    public async Task DoesNotFlushCache_FlushIsOwnedByFacade()
     {
         var h = Build(RatingResult.ForScore(8.0f), dryRun: true);
 
         await h.Runner.RunAsync(Movie(), CancellationToken.None);
 
-        // Found result is cached; the post-item flush must persist it.
-        h.CacheStore.WriteCount.Should().BeGreaterThan(0);
+        // The runner no longer flushes per item; the facade flushes the cache throttled (so a burst of
+        // realtime items does not rewrite the whole cache file per event). The runner must not write.
+        h.CacheStore.WriteCount.Should().Be(0);
     }
 
     [Fact]

@@ -17,6 +17,8 @@ internal sealed class InMemoryCacheFileStore : ICacheFileStore
 
     public int WriteCount { get; private set; }
 
+    public int AppendCount { get; private set; }
+
     public bool Exists => _content is not null;
 
     public Task<byte[]?> ReadAsync(CancellationToken cancellationToken)
@@ -26,6 +28,24 @@ internal sealed class InMemoryCacheFileStore : ICacheFileStore
     {
         _content = content.ToArray();
         WriteCount++;
+        return Task.CompletedTask;
+    }
+
+    public Task AppendAsync(byte[] content, CancellationToken cancellationToken)
+    {
+        if (_content is null)
+        {
+            _content = content.ToArray();
+        }
+        else
+        {
+            var combined = new byte[_content.Length + content.Length];
+            Array.Copy(_content, 0, combined, 0, _content.Length);
+            Array.Copy(content, 0, combined, _content.Length, content.Length);
+            _content = combined;
+        }
+
+        AppendCount++;
         return Task.CompletedTask;
     }
 

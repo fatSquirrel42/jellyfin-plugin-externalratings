@@ -11,10 +11,14 @@ as a Jellyfin plugin repository. Releases are cut manually with [`jprm`](https:/
 
 ## Steps
 
-1. **Bump the version** (same value in all three places):
+1. **Bump the version** — it lives in **four** places and they must all match (the fourth,
+   `manifest.json`, is written for you in step 5). The `changelog.yaml` automation bumps `build.yaml`
+   **only**, so the other three need a manual bump. CI enforces agreement via `scripts/check-versions.sh`
+   (the *Version Consistency* workflow), so a mismatch fails the build:
    - `Directory.Build.props` — `Version` / `AssemblyVersion` / `FileVersion`
    - `build.yaml` — `version:` (and update `changelog:`)
    - `src/Jellyfin.Plugin.ExternalRatings/meta.json` — `version` (the dev-install manifest)
+   - `manifest.json` — the new `versions[]` entry (added in step 5)
 
    Keep everything ASCII in `build.yaml` `description`/`changelog` — non-ASCII (e.g. an em dash) can be
    mangled into mojibake in the generated `meta.json`/catalog listing.
@@ -57,3 +61,12 @@ https://raw.githubusercontent.com/fatSquirrel42/jellyfin-plugin-externalratings/
 - `artifacts/` is a scratch output dir — do not commit it (add to `.gitignore` if it lands in the repo).
 - The `.github/workflows/changelog.yaml` reusable workflow maintains a release draft + a version-bump PR;
   it does not build or publish the package. Steps 3–5 above are the actual publish.
+- **The GitHub Release is not optional.** `manifest.json` on `main` advertises a `sourceUrl` pointing at
+  the release asset; if the release/asset is missing, `Catalog → Install` fails with a download error for
+  everyone. After committing `manifest.json`, verify `sourceUrl` returns HTTP 200 and its `md5sum` equals
+  the manifest `checksum`.
+- `targetAbi` (currently `10.11.11.0`) is the **minimum** Jellyfin version allowed to install the plugin.
+  It is kept equal to the `Jellyfin.Controller` package the plugin compiles against — the safe default,
+  and `scripts/check-versions.sh` prints a note if they diverge. Lowering it (e.g. `10.11.0.0`) would let
+  older 10.11.x servers install too, but only after confirming every host API the plugin uses exists on
+  that floor.

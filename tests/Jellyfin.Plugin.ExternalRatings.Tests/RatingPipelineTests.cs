@@ -301,6 +301,27 @@ public class RatingPipelineTests
     }
 
     [Fact]
+    public async Task NoMatch_Cached_ThenClearFieldToggledOn_ClearsWithoutResolver()
+    {
+        // Regression (F): a cached NoMatch must re-apply the ClearField decision on later passes instead
+        // of waiting out the negative-cache TTL. First pass (LeaveExisting) caches the NoMatch; the second
+        // pass with ClearField must clear the field straight from cache, no resolver call.
+        var resolver = new StubRatingResolver(RatingResult.NoMatch());
+        var h = new Harness(resolver);
+        h.Writer.SeedRating(Id1, 6.0f);
+
+        var first = await h.Run(Movie(Id1));
+        h.Options = new PipelineOptions { DryRun = false, NoMatchBehavior = NoMatchBehavior.ClearField };
+        var second = await h.Run(Movie(Id1));
+
+        first.Should().Be(RatingOutcome.NoMatch);
+        second.Should().Be(RatingOutcome.Cleared);
+        resolver.CallCount.Should().Be(1);
+        h.Writer.Writes.Should().ContainSingle();
+        h.Writer.Writes[0].Value.Should().BeNull();
+    }
+
+    [Fact]
     public async Task NoMatch_WithUnusedAlternatives_IncrementsH12()
     {
         var h = new Harness(new StubRatingResolver(RatingResult.NoMatch()));

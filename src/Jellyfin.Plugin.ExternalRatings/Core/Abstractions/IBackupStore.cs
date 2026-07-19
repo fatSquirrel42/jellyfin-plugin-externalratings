@@ -41,9 +41,12 @@ internal interface IBackupStore
     /// <returns>A task that completes once removal is durable.</returns>
     Task RemoveAsync(Guid itemId, CancellationToken cancellationToken);
 
-    /// <summary>Removes entries whose item no longer exists (orphan pruning per run, H10).</summary>
+    /// <summary>Removes entries whose item no longer exists and persists the change (orphan pruning per
+    /// run, H10). Async because the removal must be durable — a memory-only prune resurrects on reload.</summary>
     /// <param name="liveItemIds">The set of item ids that still exist.</param>
-    void PruneOrphans(IReadOnlySet<Guid> liveItemIds);
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task that completes once the prune is durable.</returns>
+    Task PruneOrphansAsync(IReadOnlySet<Guid> liveItemIds, CancellationToken cancellationToken);
 
     /// <summary>Removes all entries from memory and the persisted store.</summary>
     /// <param name="cancellationToken">The cancellation token.</param>
