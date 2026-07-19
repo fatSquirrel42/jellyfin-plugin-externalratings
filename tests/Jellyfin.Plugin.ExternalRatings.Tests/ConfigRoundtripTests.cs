@@ -35,7 +35,7 @@ public class ConfigRoundtripTests
         var config = new PluginConfiguration();
 
         config.ActiveResolverKey.Should().Be("mdblist");
-        config.RatingSource.Should().Be("myanimelist");
+        config.RatingSource.Should().Be("none");
         config.ProcessedLevels.Should().Equal("Movie", "Series");
         config.CacheTtlDays.Should().Be(7);
         config.NegativeCacheTtlDays.Should().Be(1);
