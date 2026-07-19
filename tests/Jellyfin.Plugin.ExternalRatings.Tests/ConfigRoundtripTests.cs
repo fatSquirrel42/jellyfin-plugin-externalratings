@@ -40,7 +40,7 @@ public class ConfigRoundtripTests
         config.CacheTtlDays.Should().Be(7);
         config.NegativeCacheTtlDays.Should().Be(1);
         config.NoMatchBehavior.Should().Be("ClearField");
-        config.UnsupportedLevelBehavior.Should().Be("Skip");
+        config.UnsupportedLevelBehavior.Should().Be("ClearField");
         config.DailyRequestLimit.Should().Be(1000);
         config.RunAfterLibraryScan.Should().BeTrue();
         config.EnableRealtimeListener.Should().BeTrue();

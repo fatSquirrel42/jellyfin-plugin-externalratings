@@ -70,8 +70,8 @@
                     <div class="selectContainer">
                         <label class="selectLabel" for="UnsupportedLevelBehavior">On unsupported level</label>
                         <select is="emby-select" id="UnsupportedLevelBehavior" name="UnsupportedLevelBehavior" class="emby-select-withcolor emby-select">
-                            <option value="Skip">Skip</option>
                             <option value="ClearField">Clear the rating</option>
+                            <option value="LeaveExisting">Leave existing rating</option>
                         </select>
                     </div>
 
@@ -82,10 +82,6 @@
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="NegativeCacheTtlDays">Negative cache TTL (days)</label>
                         <input id="NegativeCacheTtlDays" name="NegativeCacheTtlDays" type="number" is="emby-input" min="0" />
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="DailyRequestLimit">Daily request limit</label>
-                        <input id="DailyRequestLimit" name="DailyRequestLimit" type="number" is="emby-input" min="0" />
                     </div>
 
                     <h2>Triggers</h2>
@@ -116,28 +112,33 @@
                     </div>
                 </form>
 
-                <h2>Actions</h2>
-                <div class="fieldDescription" style="margin-bottom:0.6em;">
-                    Manual controls. Only one action (a run, a restore, or a cache clear) can be active at a time.
-                </div>
-                <div>
-                    <button id="RunNowButton" is="emby-button" type="button" class="raised block emby-button">
-                        <span>Run enrichment now</span>
-                    </button>
-                    <div class="fieldDescription">Starts the enrichment scheduled task. Watch progress under Dashboard &gt; Scheduled Tasks.</div>
-                </div>
-                <div>
-                    <button id="RestoreAllButton" is="emby-button" type="button" class="raised block emby-button">
-                        <span>Restore all original ratings</span>
-                    </button>
-                    <div class="fieldDescription">Resets every rating the plugin changed back to its original value and clears the plugin's backups.</div>
-                </div>
-                <div>
-                    <button id="ClearCacheButton" is="emby-button" type="button" class="raised block emby-button">
-                        <span>Clear rating cache</span>
-                    </button>
-                    <div class="fieldDescription">Discards cached external ratings so the next run re-fetches them. Original-value backups are kept, so Restore still works.</div>
-                </div>
+                <!-- Wrapped in a form purely to inherit Jellyfin's form{max-width:54em} so these
+                     buttons match the Save button's width without hardcoding the value. No id, so the
+                     config form's submit handler does not apply; buttons are type="button". -->
+                <form>
+                    <h2>Actions</h2>
+                    <div class="fieldDescription" style="margin-bottom:0.6em;">
+                        Manual controls. Only one action (a run, a restore, or a cache clear) can be active at a time.
+                    </div>
+                    <div>
+                        <button id="RunNowButton" is="emby-button" type="button" class="raised block emby-button">
+                            <span>Run enrichment now</span>
+                        </button>
+                        <div class="fieldDescription">Starts the enrichment scheduled task. Watch progress under Dashboard &gt; Scheduled Tasks.</div>
+                    </div>
+                    <div>
+                        <button id="RestoreAllButton" is="emby-button" type="button" class="raised block emby-button">
+                            <span>Restore all original ratings</span>
+                        </button>
+                        <div class="fieldDescription">Resets every rating the plugin changed back to its original value and clears the plugin's backups.</div>
+                    </div>
+                    <div>
+                        <button id="ClearCacheButton" is="emby-button" type="button" class="raised block emby-button">
+                            <span>Clear rating cache</span>
+                        </button>
+                        <div class="fieldDescription">Discards cached external ratings so the next run re-fetches them. Original-value backups are kept, so Restore still works.</div>
+                    </div>
+                </form>
             </div>
         </div>
 
@@ -346,7 +347,6 @@
                         page.querySelector('#UnsupportedLevelBehavior').value = config.UnsupportedLevelBehavior;
                         page.querySelector('#CacheTtlDays').value = config.CacheTtlDays;
                         page.querySelector('#NegativeCacheTtlDays').value = config.NegativeCacheTtlDays;
-                        page.querySelector('#DailyRequestLimit').value = config.DailyRequestLimit;
                         page.querySelector('#RunAfterLibraryScan').checked = config.RunAfterLibraryScan;
                         page.querySelector('#EnableRealtimeListener').checked = config.EnableRealtimeListener;
                         page.querySelector('#DryRun').checked = config.DryRun;
@@ -396,7 +396,6 @@
                         config.UnsupportedLevelBehavior = page.querySelector('#UnsupportedLevelBehavior').value;
                         config.CacheTtlDays = parseInt(page.querySelector('#CacheTtlDays').value, 10);
                         config.NegativeCacheTtlDays = parseInt(page.querySelector('#NegativeCacheTtlDays').value, 10);
-                        config.DailyRequestLimit = parseInt(page.querySelector('#DailyRequestLimit').value, 10);
                         config.RunAfterLibraryScan = page.querySelector('#RunAfterLibraryScan').checked;
                         config.EnableRealtimeListener = page.querySelector('#EnableRealtimeListener').checked;
                         config.DryRun = page.querySelector('#DryRun').checked;

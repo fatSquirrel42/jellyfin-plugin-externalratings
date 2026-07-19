@@ -5,8 +5,8 @@ namespace Jellyfin.Plugin.ExternalRatings.Core;
 /// </summary>
 internal enum UnsupportedLevelBehavior
 {
-    /// <summary>Skip the item, leaving any existing rating untouched (default).</summary>
-    Skip,
+    /// <summary>Leave any existing community rating untouched (skip the item).</summary>
+    LeaveExisting,
 
     /// <summary>Clear the community rating (opt-in, always backed up first).</summary>
     ClearField
