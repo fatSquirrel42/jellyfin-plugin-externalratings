@@ -17,21 +17,23 @@
 
                     <div id="nfoWarning" class="fieldDescription" style="display:none;padding:0.6em;margin-bottom:1em;background:#6a1b1b;color:#fff;border-radius:4px;"></div>
 
-                    <h2>Libraries</h2>
-                    <div class="fieldDescription">Select the libraries this plugin is enabled for. Optionally pick a rating source per library; libraries left on &ldquo;(Use default)&rdquo; use the default source below.</div>
-                    <div id="enabledLibraries"></div>
-
-                    <h2>Resolver</h2>
+                    <h2>Connection</h2>
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="MdblistApiKey">mdblist API key</label>
                         <input id="MdblistApiKey" name="MdblistApiKey" type="password" is="emby-input" autocomplete="off" />
                         <div class="fieldDescription">Stored in plaintext in the plugin configuration file (server file permissions apply).</div>
                     </div>
+
+                    <h2>Rating source</h2>
                     <div class="selectContainer">
                         <label class="selectLabel" for="RatingSource">Default rating source</label>
                         <select is="emby-select" id="RatingSource" name="RatingSource" class="emby-select-withcolor emby-select"></select>
                         <div id="ratingSourceHint" class="fieldDescription" style="display:none;"></div>
                     </div>
+
+                    <h2>Libraries</h2>
+                    <div class="fieldDescription">Select the libraries this plugin is enabled for. Optionally pick a rating source per library; libraries left on &ldquo;(Use default)&rdquo; use the default source above.</div>
+                    <div id="enabledLibraries"></div>
 
                     <h2>Behavior</h2>
                     <div class="selectContainer">
@@ -49,6 +51,7 @@
                         </select>
                     </div>
 
+                    <h2>Cache</h2>
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="CacheTtlDays">Cache TTL (days)</label>
                         <input id="CacheTtlDays" name="CacheTtlDays" type="number" is="emby-input" min="0" />
