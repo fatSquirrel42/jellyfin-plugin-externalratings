@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -31,6 +32,22 @@ public class MdblistResolverTests
 
     private static RatingRequest Request(ItemLevel level, string provider, string id, string source)
         => new(level, provider, id, source);
+
+    [Fact]
+    public void SupportedRatingSources_ExposesSelectableSources_WithoutRogerebert()
+    {
+        var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, "{}");
+
+        var keys = Build(handler).SupportedRatingSources.Select(s => s.Key).ToList();
+
+        keys.Should().BeEquivalentTo(new[]
+        {
+            "imdb", "myanimelist", "metacriticuser", "trakt", "tmdb",
+            "metacritic", "tomatoes", "popcorn", "letterboxd"
+        });
+        // rogerebert returns a native value but no unified score, so it must not be selectable.
+        keys.Should().NotContain("rogerebert");
+    }
 
     [Fact]
     public async Task ResolveAsync_MovieFound_ReturnsNormalizedScore()

@@ -399,6 +399,15 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         return SupportedLevels(resolver).Select(level => level.ToString()).ToList();
     }
 
+    /// <summary>Gets the external rating sources the active resolver can return (for the status endpoint).</summary>
+    /// <returns>The selectable rating sources with their display names and native scales.</returns>
+    public IReadOnlyList<RatingSourceInfo> GetSupportedSources()
+    {
+        // SupportedRatingSources is a static capability: no API key or HTTP needed.
+        var resolver = new MdblistResolver(_httpClient, string.Empty, new Logger<MdblistResolver>(_loggerFactory));
+        return resolver.SupportedRatingSources.ToList();
+    }
+
     /// <summary>Disposes the owned cache, backup stores, and HTTP stack.</summary>
     public void Dispose()
     {

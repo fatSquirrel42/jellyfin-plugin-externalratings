@@ -19,6 +19,9 @@ internal interface IRatingResolver
     /// <summary>Gets the input providers this resolver supports, per item level.</summary>
     IReadOnlyDictionary<ItemLevel, IReadOnlyCollection<string>> SupportedInputProviders { get; }
 
+    /// <summary>Gets the external rating sources this resolver can return (its selectable-source capability).</summary>
+    IReadOnlyCollection<RatingSourceInfo> SupportedRatingSources { get; }
+
     /// <summary>Resolves a single rating request.</summary>
     /// <param name="request">The request.</param>
     /// <param name="cancellationToken">The cancellation token.</param>

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Jellyfin.Plugin.ExternalRatings.Resolvers;
 
 namespace Jellyfin.Plugin.ExternalRatings.Api;
 
@@ -24,6 +25,12 @@ public class StatusResponse
     /// Gets the item levels the active resolver supports (its capability feature flag).
     /// </summary>
     public IReadOnlyList<string> SupportedLevels { get; init; } = new List<string>();
+
+    /// <summary>
+    /// Gets the external rating sources the active resolver can return, with their display names and
+    /// native scales. The config page renders its source dropdowns from this list.
+    /// </summary>
+    public IReadOnlyList<RatingSourceInfo> SupportedSources { get; init; } = new List<RatingSourceInfo>();
 
     /// <summary>
     /// Gets the configured daily HTTP request limit.

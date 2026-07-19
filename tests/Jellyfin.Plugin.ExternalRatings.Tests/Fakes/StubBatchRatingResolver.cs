@@ -43,6 +43,9 @@ internal sealed class StubBatchRatingResolver : IBatchRatingResolver
             [ItemLevel.Series] = new[] { "Tmdb", "Imdb", "Tvdb" }
         };
 
+    public IReadOnlyCollection<RatingSourceInfo> SupportedRatingSources { get; set; } =
+        new[] { new RatingSourceInfo("myanimelist", "MyAnimeList", "0–10", false) };
+
     public List<BatchCall> BatchCalls { get; } = new();
 
     public Task<RatingResult> ResolveAsync(RatingRequest request, CancellationToken cancellationToken)

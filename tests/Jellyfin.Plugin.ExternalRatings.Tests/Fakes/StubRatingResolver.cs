@@ -39,6 +39,9 @@ internal sealed class StubRatingResolver : IRatingResolver
             [ItemLevel.Series] = new[] { "Tmdb", "Imdb", "Tvdb" }
         };
 
+    public IReadOnlyCollection<RatingSourceInfo> SupportedRatingSources { get; set; } =
+        new[] { new RatingSourceInfo("myanimelist", "MyAnimeList", "0–10", false) };
+
     public async Task<RatingResult> ResolveAsync(RatingRequest request, CancellationToken cancellationToken)
     {
         lock (Requests)
