@@ -12,9 +12,9 @@ as a Jellyfin plugin repository. Releases are cut manually with [`jprm`](https:/
 ## Steps
 
 1. **Bump the version** — it lives in **four** places and they must all match (the fourth,
-   `manifest.json`, is written for you in step 5). The `changelog.yaml` automation bumps `build.yaml`
-   **only**, so the other three need a manual bump. CI enforces agreement via `scripts/check-versions.sh`
-   (the *Version Consistency* workflow), so a mismatch fails the build:
+   `manifest.json`, is written for you in step 5). All four are bumped **manually** — the `changelog.yaml`
+   automation only drafts release notes and touches no version file. CI enforces agreement via
+   `scripts/check-versions.sh` (the *Version Consistency* workflow), so a mismatch fails the build:
    - `Directory.Build.props` — `Version` / `AssemblyVersion` / `FileVersion`
    - `build.yaml` — `version:` (and update `changelog:`)
    - `src/Jellyfin.Plugin.ExternalRatings/meta.json` — `version` (the dev-install manifest)
@@ -59,8 +59,9 @@ https://raw.githubusercontent.com/fatSquirrel42/jellyfin-plugin-externalratings/
 
 ## Notes
 - `artifacts/` is a scratch output dir — do not commit it (add to `.gitignore` if it lands in the repo).
-- The `.github/workflows/changelog.yaml` reusable workflow maintains a release draft + a version-bump PR;
-  it does not build or publish the package. Steps 3–5 above are the actual publish.
+- The `.github/workflows/changelog.yaml` workflow runs `release-drafter` to maintain a **release-notes
+  draft only** (driven by `.github/release-drafter.yml`); it does not bump any version file, and does not
+  build or publish the package. Steps 1–5 above are the actual bump and publish.
 - **The GitHub Release is not optional.** `manifest.json` on `main` advertises a `sourceUrl` pointing at
   the release asset; if the release/asset is missing, `Catalog → Install` fails with a download error for
   everyone. After committing `manifest.json`, verify `sourceUrl` returns HTTP 200 and its `md5sum` equals

@@ -1,0 +1,54 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+category-template: '### $TITLE'
+
+version-resolver:
+  major:
+    labels: [breaking, major]
+  minor:
+    labels: [enhancement, feature, minor]
+  patch:
+    labels: [bug, fix, bugfix, regression, chore, cleanup, documentation, dependencies, ci, build]
+  default: patch
+
+categories:
+  - title: ':boom: Breaking changes'
+    labels: [breaking]
+  - title: ':rocket: Features and improvements'
+    labels: [enhancement, feature]
+  - title: ':bug: Bug fixes'
+    labels: [bug, fix, bugfix, regression]
+  - title: ':white_check_mark: Tests'
+    labels: [test, tests]
+  - title: ':gear: Maintenance'
+    labels: [chore, cleanup, refactor]
+  - title: ':memo: Documentation'
+    labels: [documentation]
+  - title: ':arrow_up: Dependency updates'
+    labels: [dependencies, dependency]
+  - title: ':construction_worker: CI & build'
+    labels: [ci, build]
+
+exclude-labels: [no-changelog, skip-changelog, invalid]
+
+autolabeler:
+  - label: ci
+    files: ['.github/workflows/*', '.github/renovate.json']
+    branch: ['/ci\/.+/']
+  - label: documentation
+    files: ['*.md', 'docs/**']
+    branch: ['/docs?\/.+/']
+  - label: bug
+    branch: ['/fix\/.+/']
+    title: ['/^fix/i']
+  - label: chore
+    branch: ['/chore\/.+/']
+    title: ['/^chore/i', '/^refactor/i', '/^style/i']
+  - label: feature
+    branch: ['/feature\/.+/', '/feat\/.+/']
+    title: ['/^feat/i']
+
+template: |-
+  ## :sparkles: What's New
+
+  $CHANGES
