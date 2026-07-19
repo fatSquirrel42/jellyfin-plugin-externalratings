@@ -35,6 +35,7 @@ public class ConfigRoundtripTests
         var config = new PluginConfiguration();
 
         config.ActiveResolverKey.Should().Be("mdblist");
+        config.RatingSource.Should().Be("myanimelist");
         config.ProcessedLevels.Should().Equal("Movie", "Series");
         config.CacheTtlDays.Should().Be(7);
         config.NegativeCacheTtlDays.Should().Be(1);
@@ -45,6 +46,7 @@ public class ConfigRoundtripTests
         config.EnableRealtimeListener.Should().BeTrue();
         config.DryRun.Should().BeTrue();
         config.EnabledLibraries.Should().BeEmpty();
+        config.LibrarySources.Should().BeEmpty();
         config.ResolverSettings.Should().BeEmpty();
     }
 
@@ -69,6 +71,15 @@ public class ConfigRoundtripTests
                 Guid.Parse("22222222-2222-2222-2222-222222222222")
             },
             ActiveResolverKey = "mdblist",
+            RatingSource = "imdb",
+            LibrarySources = new[]
+            {
+                new LibrarySourceSetting
+                {
+                    LibraryId = Guid.Parse("33333333-3333-3333-3333-333333333333"),
+                    Source = "letterboxd"
+                }
+            },
             ResolverSettings = new[]
             {
                 new ResolverSetting { Key = "mdblist.apiKey", Value = "secret-key-value" }

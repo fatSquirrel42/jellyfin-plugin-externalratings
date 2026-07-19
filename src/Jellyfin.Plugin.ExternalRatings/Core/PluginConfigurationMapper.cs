@@ -52,6 +52,43 @@ internal static class PluginConfigurationMapper
         return result.Count == 0 ? DefaultLevels : result;
     }
 
+    /// <summary>
+    /// Resolves the external rating source for an item, given the ids of the libraries
+    /// (CollectionFolders) it belongs to.
+    /// </summary>
+    /// <param name="config">The plugin configuration.</param>
+    /// <param name="collectionFolderIds">The item's CollectionFolder ids (see <c>ILibraryManager.GetCollectionFolders</c>).</param>
+    /// <returns>
+    /// The source of the first matching <see cref="PluginConfiguration.LibrarySources"/> override; else
+    /// <see cref="PluginConfiguration.RatingSource"/>; falling back to <c>myanimelist</c> when unset.
+    /// </returns>
+    public static string ResolveSource(PluginConfiguration config, IEnumerable<Guid> collectionFolderIds)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(collectionFolderIds);
+
+        var fallback = string.IsNullOrWhiteSpace(config.RatingSource) ? "myanimelist" : config.RatingSource.Trim();
+
+        // Fast path: no overrides configured, so every library uses the default.
+        if (config.LibrarySources.Length == 0)
+        {
+            return fallback;
+        }
+
+        foreach (var folderId in collectionFolderIds)
+        {
+            foreach (var mapping in config.LibrarySources)
+            {
+                if (mapping.LibraryId == folderId && !string.IsNullOrWhiteSpace(mapping.Source))
+                {
+                    return mapping.Source.Trim();
+                }
+            }
+        }
+
+        return fallback;
+    }
+
     /// <summary>Looks up a resolver setting by key.</summary>
     /// <param name="config">The plugin configuration.</param>
     /// <param name="key">The setting key (for example <c>mdblist.apiKey</c>).</param>

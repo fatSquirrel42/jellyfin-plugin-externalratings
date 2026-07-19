@@ -28,6 +28,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public Guid[] EnabledLibraries { get; set; } = Array.Empty<Guid>();
 
     /// <summary>
+    /// Gets or sets the per-library rating-source overrides. Libraries without an entry use
+    /// <see cref="RatingSource"/>. Keyed by CollectionFolder id (as in <see cref="EnabledLibraries"/>).
+    /// </summary>
+    public LibrarySourceSetting[] LibrarySources { get; set; } = Array.Empty<LibrarySourceSetting>();
+
+    /// <summary>
     /// Gets or sets the resolver settings (for example the mdblist API key), keyed by string.
     /// </summary>
     public ResolverSetting[] ResolverSettings { get; set; } = Array.Empty<ResolverSetting>();
@@ -43,6 +49,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the key of the active resolver.
     /// </summary>
     public string ActiveResolverKey { get; set; } = "mdblist";
+
+    /// <summary>
+    /// Gets or sets the default external rating source used for libraries without a
+    /// <see cref="LibrarySources"/> override (for example <c>myanimelist</c> or <c>imdb</c>).
+    /// </summary>
+    public string RatingSource { get; set; } = "myanimelist";
 
     /// <summary>
     /// Gets or sets the positive-cache time-to-live in days.

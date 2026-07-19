@@ -122,6 +122,61 @@ public class PluginConfigurationMapperTests
     }
 
     [Fact]
+    public void ResolveSource_NoOverrides_ReturnsDefault()
+    {
+        var config = new PluginConfiguration { RatingSource = "imdb" };
+
+        PluginConfigurationMapper.ResolveSource(config, new[] { Guid.NewGuid() }).Should().Be("imdb");
+    }
+
+    [Fact]
+    public void ResolveSource_OverrideMatches_ReturnsOverride()
+    {
+        var libraryId = Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            RatingSource = "imdb",
+            LibrarySources = new[] { new LibrarySourceSetting { LibraryId = libraryId, Source = "myanimelist" } }
+        };
+
+        PluginConfigurationMapper.ResolveSource(config, new[] { libraryId }).Should().Be("myanimelist");
+    }
+
+    [Fact]
+    public void ResolveSource_NoMatchingLibrary_ReturnsDefault()
+    {
+        var config = new PluginConfiguration
+        {
+            RatingSource = "imdb",
+            LibrarySources = new[] { new LibrarySourceSetting { LibraryId = Guid.NewGuid(), Source = "myanimelist" } }
+        };
+
+        PluginConfigurationMapper.ResolveSource(config, new[] { Guid.NewGuid() }).Should().Be("imdb");
+    }
+
+    [Fact]
+    public void ResolveSource_ItemInMultipleLibraries_FirstMatchingOverrideWins()
+    {
+        var animeLib = Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            RatingSource = "imdb",
+            LibrarySources = new[] { new LibrarySourceSetting { LibraryId = animeLib, Source = "letterboxd" } }
+        };
+
+        // The item belongs to two libraries; the one with an override determines the source.
+        PluginConfigurationMapper.ResolveSource(config, new[] { Guid.NewGuid(), animeLib }).Should().Be("letterboxd");
+    }
+
+    [Fact]
+    public void ResolveSource_BlankDefault_FallsBackToMyAnimeList()
+    {
+        var config = new PluginConfiguration { RatingSource = "  " };
+
+        PluginConfigurationMapper.ResolveSource(config, Array.Empty<Guid>()).Should().Be("myanimelist");
+    }
+
+    [Fact]
     public void GetResolverSetting_ReturnsValue_WhenKeyPresent()
     {
         var config = new PluginConfiguration
