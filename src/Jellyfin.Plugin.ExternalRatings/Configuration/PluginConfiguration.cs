@@ -52,9 +52,10 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets the default external rating source used for libraries without a
-    /// <see cref="LibrarySources"/> override (for example <c>myanimelist</c> or <c>imdb</c>).
+    /// <see cref="LibrarySources"/> override (for example <c>myanimelist</c> or <c>imdb</c>). The
+    /// default <c>none</c> leaves community ratings untouched unless a library selects its own source.
     /// </summary>
-    public string RatingSource { get; set; } = "myanimelist";
+    public string RatingSource { get; set; } = "none";
 
     /// <summary>
     /// Gets or sets the positive-cache time-to-live in days.
@@ -70,7 +71,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the behavior for authoritative no-matches
     /// (<c>LeaveExisting</c> or <c>ClearField</c>).
     /// </summary>
-    public string NoMatchBehavior { get; set; } = "LeaveExisting";
+    public string NoMatchBehavior { get; set; } = "ClearField";
 
     /// <summary>
     /// Gets or sets the behavior for unsupported levels (<c>Skip</c> or <c>ClearField</c>).

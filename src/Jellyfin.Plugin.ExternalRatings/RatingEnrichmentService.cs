@@ -270,6 +270,12 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             config,
             _libraryManager.GetCollectionFolders(baseItem).Select(f => f.Id));
 
+        // "none" (default or per-library) means: leave this item's community rating untouched.
+        if (PluginConfigurationMapper.IsNoSource(source))
+        {
+            return;
+        }
+
         var workItem = new RatingWorkItem(
             new RatingItemRef(baseItem.Id, baseItem.Name),
             level.Value,
@@ -559,6 +565,13 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             var source = hasOverrides
                 ? PluginConfigurationMapper.ResolveSource(config, _libraryManager.GetCollectionFolders(baseItem).Select(f => f.Id))
                 : defaultSource;
+
+            // "none" means the effective source disables enrichment for this item; still recorded as
+            // live above so the orphan-prune keeps any existing backup.
+            if (PluginConfigurationMapper.IsNoSource(source))
+            {
+                continue;
+            }
 
             items.Add(new RatingWorkItem(
                 new RatingItemRef(baseItem.Id, baseItem.Name),

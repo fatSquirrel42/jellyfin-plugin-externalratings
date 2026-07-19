@@ -35,11 +35,11 @@ public class ConfigRoundtripTests
         var config = new PluginConfiguration();
 
         config.ActiveResolverKey.Should().Be("mdblist");
-        config.RatingSource.Should().Be("myanimelist");
+        config.RatingSource.Should().Be("none");
         config.ProcessedLevels.Should().Equal("Movie", "Series");
         config.CacheTtlDays.Should().Be(7);
         config.NegativeCacheTtlDays.Should().Be(1);
-        config.NoMatchBehavior.Should().Be("LeaveExisting");
+        config.NoMatchBehavior.Should().Be("ClearField");
         config.UnsupportedLevelBehavior.Should().Be("Skip");
         config.DailyRequestLimit.Should().Be(1000);
         config.RunAfterLibraryScan.Should().BeTrue();

@@ -11,6 +11,12 @@ namespace Jellyfin.Plugin.ExternalRatings.Core;
 /// </summary>
 internal static class PluginConfigurationMapper
 {
+    /// <summary>
+    /// The sentinel source value meaning "do not set or replace the community rating". When resolved as
+    /// the effective source, the item is skipped entirely (no fetch, no write).
+    /// </summary>
+    public const string NoSource = "none";
+
     private static readonly IReadOnlyList<ItemLevel> DefaultLevels = new[] { ItemLevel.Movie, ItemLevel.Series };
 
     /// <summary>Builds <see cref="PipelineOptions"/> from the configuration.</summary>
@@ -52,6 +58,12 @@ internal static class PluginConfigurationMapper
         return result.Count == 0 ? DefaultLevels : result;
     }
 
+    /// <summary>Whether the resolved source means enrichment should be skipped.</summary>
+    /// <param name="source">A source returned by <see cref="ResolveSource"/>.</param>
+    /// <returns><see langword="true"/> for the <see cref="NoSource"/> sentinel or a blank value.</returns>
+    public static bool IsNoSource(string source)
+        => string.IsNullOrWhiteSpace(source) || string.Equals(source, NoSource, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Resolves the external rating source for an item, given the ids of the libraries
     /// (CollectionFolders) it belongs to.
@@ -60,14 +72,15 @@ internal static class PluginConfigurationMapper
     /// <param name="collectionFolderIds">The item's CollectionFolder ids (see <c>ILibraryManager.GetCollectionFolders</c>).</param>
     /// <returns>
     /// The source of the first matching <see cref="PluginConfiguration.LibrarySources"/> override; else
-    /// <see cref="PluginConfiguration.RatingSource"/>; falling back to <c>myanimelist</c> when unset.
+    /// <see cref="PluginConfiguration.RatingSource"/>; falling back to <see cref="NoSource"/> (leave
+    /// ratings untouched) when unset.
     /// </returns>
     public static string ResolveSource(PluginConfiguration config, IEnumerable<Guid> collectionFolderIds)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(collectionFolderIds);
 
-        var fallback = string.IsNullOrWhiteSpace(config.RatingSource) ? "myanimelist" : config.RatingSource.Trim();
+        var fallback = string.IsNullOrWhiteSpace(config.RatingSource) ? NoSource : config.RatingSource.Trim();
 
         // Fast path: no overrides configured, so every library uses the default.
         if (config.LibrarySources.Length == 0)

@@ -63,8 +63,8 @@
                     <div class="selectContainer">
                         <label class="selectLabel" for="NoMatchBehavior">On no match</label>
                         <select is="emby-select" id="NoMatchBehavior" name="NoMatchBehavior" class="emby-select-withcolor emby-select">
-                            <option value="LeaveExisting">Leave existing rating</option>
                             <option value="ClearField">Clear the rating</option>
+                            <option value="LeaveExisting">Leave existing rating</option>
                         </select>
                     </div>
                     <div class="selectContainer">
@@ -173,6 +173,9 @@
                 }
 
                 function sourceHintText(value) {
+                    if (value === 'none') {
+                        return 'Community ratings are left unchanged, except for libraries that select their own source below.';
+                    }
                     var s = sourceByValue(value);
                     if (!s || !s.rescaled) {
                         return '';
@@ -322,7 +325,12 @@
 
                         var ratingSourceSelect = page.querySelector('#RatingSource');
                         fillSourceOptions(ratingSourceSelect, false);
-                        ratingSourceSelect.value = config.RatingSource || 'myanimelist';
+                        // "none" default: leave community ratings untouched unless a library overrides it.
+                        var noneOpt = document.createElement('option');
+                        noneOpt.value = 'none';
+                        noneOpt.textContent = '(Don’t set community rating)';
+                        ratingSourceSelect.insertBefore(noneOpt, ratingSourceSelect.firstChild);
+                        ratingSourceSelect.value = config.RatingSource || 'none';
                         var ratingSourceHint = page.querySelector('#ratingSourceHint');
                         var defaultHint = sourceHintText(ratingSourceSelect.value);
                         ratingSourceHint.textContent = defaultHint;

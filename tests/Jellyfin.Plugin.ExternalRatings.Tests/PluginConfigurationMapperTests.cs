@@ -169,11 +169,46 @@ public class PluginConfigurationMapperTests
     }
 
     [Fact]
-    public void ResolveSource_BlankDefault_FallsBackToMyAnimeList()
+    public void ResolveSource_BlankDefault_FallsBackToNone()
     {
         var config = new PluginConfiguration { RatingSource = "  " };
 
-        PluginConfigurationMapper.ResolveSource(config, Array.Empty<Guid>()).Should().Be("myanimelist");
+        PluginConfigurationMapper.ResolveSource(config, Array.Empty<Guid>()).Should().Be("none");
+    }
+
+    [Fact]
+    public void ResolveSource_NoneDefault_ReturnsNone()
+    {
+        var config = new PluginConfiguration { RatingSource = "none" };
+
+        PluginConfigurationMapper.ResolveSource(config, new[] { Guid.NewGuid() }).Should().Be("none");
+    }
+
+    [Fact]
+    public void ResolveSource_NoneDefault_LibraryOverrideStillApplies()
+    {
+        var libraryId = Guid.NewGuid();
+        var config = new PluginConfiguration
+        {
+            RatingSource = "none",
+            LibrarySources = new[] { new LibrarySourceSetting { LibraryId = libraryId, Source = "imdb" } }
+        };
+
+        // Overridden library enriches; everything else stays "none" (untouched).
+        PluginConfigurationMapper.ResolveSource(config, new[] { libraryId }).Should().Be("imdb");
+        PluginConfigurationMapper.ResolveSource(config, new[] { Guid.NewGuid() }).Should().Be("none");
+    }
+
+    [Theory]
+    [InlineData("none", true)]
+    [InlineData("None", true)]
+    [InlineData("", true)]
+    [InlineData("   ", true)]
+    [InlineData("imdb", false)]
+    [InlineData("myanimelist", false)]
+    public void IsNoSource_DetectsDisabledSource(string source, bool expected)
+    {
+        PluginConfigurationMapper.IsNoSource(source).Should().Be(expected);
     }
 
     [Fact]
