@@ -12,7 +12,7 @@
                 "changelog": "First release. Resolves MyAnimeList community scores (via the mdblist API) into Jellyfin's native\nCommunityRating for Movies and Series.\n- Lookup by Tmdb/Imdb/Tvdb id with positive + negative caching, batch prefetch, a daily request\n  budget, and a shared circuit breaker that pauses on repeated errors / HTTP 429.\n- Triggers: on-demand scheduled task, automatic post-library-scan pass, and a realtime item listener\n  that enriches items as they change (debounced, self-write-guarded, ignores manual edits).\n- Writes via ItemUpdateType.MetadataEdit so per-library NFO savers stay consistent with the DB.\n- Locked items (IsLocked) are never overwritten, so a manually set rating can be protected.\n- Config page actions: run now, restore all original ratings, clear the rating cache.\nTargets Jellyfin 10.11.x (net9.0).\n",
                 "targetAbi": "10.11.11.0",
                 "sourceUrl": "https://github.com/fatSquirrel42/jellyfin-plugin-externalratings/releases/download/v0.1.0.0/external-ratings_0.1.0.0.zip",
-                "checksum": "6a5646ab33b7de5c85fa1c9ef55dec22",
+                "checksum": "89c53f02dc0748036c0ea7fe139c9a89",
                 "timestamp": "2026-07-18T14:31:34Z"
             }
         ]
