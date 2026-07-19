@@ -1,0 +1,28 @@
+name: '🔢 Version Consistency'
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Fails the build if the version drifts across Directory.Build.props / build.yaml / meta.json /
+      # manifest.json, or if targetAbi disagrees with the referenced Jellyfin.Controller package. The
+      # changelog automation only bumps build.yaml, so this catches the resulting silent divergence.
+      - name: Check version + targetAbi consistency
+        run: bash scripts/check-versions.sh

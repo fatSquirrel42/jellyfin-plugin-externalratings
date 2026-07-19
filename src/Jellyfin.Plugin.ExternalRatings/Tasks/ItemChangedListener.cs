@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.ExternalRatings.Core;
@@ -24,6 +26,10 @@ internal sealed class ItemChangedListener : IHostedService, IDisposable
     private static readonly TimeSpan DefaultDebounceWindow = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan DefaultTickInterval = TimeSpan.FromSeconds(1);
 
+    // Upper bound on how long StopAsync waits for in-flight enrichments to drain before giving up, so a
+    // hung HTTP call cannot block shutdown indefinitely.
+    private static readonly TimeSpan StopDrainTimeout = TimeSpan.FromSeconds(5);
+
     private readonly ILibraryManager _libraryManager;
     private readonly ISingleItemEnricher _enricher;
     private readonly IClock _clock;
@@ -32,6 +38,7 @@ internal sealed class ItemChangedListener : IHostedService, IDisposable
     private readonly ItemChangeDebouncer _debouncer;
     private readonly TimeSpan _tickInterval;
     private readonly ConcurrentDictionary<Guid, byte> _inFlight = new();
+    private readonly ConcurrentDictionary<Guid, Task> _running = new();
 
     private CancellationTokenSource? _cts;
     private Timer? _ticker;
@@ -106,6 +113,32 @@ internal sealed class ItemChangedListener : IHostedService, IDisposable
             _ticker = null;
         }
 
+        // Drain in-flight enrichments (bounded) so shutdown does not abandon an item mid-resolve and does
+        // not dispose _cts while a task still holds its token. EnrichAsync swallows its own exceptions, so
+        // Task.WhenAll only surfaces the drain timeout / stop-token cancellation.
+        var pending = _running.Values.ToArray();
+        if (pending.Length > 0)
+        {
+            try
+            {
+                await Task.WhenAll(pending).WaitAsync(StopDrainTimeout, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
+            {
+                _logger.LogWarning("External Ratings realtime listener stop: enrichment did not drain within {Timeout}", StopDrainTimeout);
+            }
+        }
+
+        // Persist the realtime cache tail resolved since the last throttled flush.
+        try
+        {
+            await _enricher.FlushPendingAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "External Ratings realtime listener stop: final cache flush failed");
+        }
+
         if (_cts is not null)
         {
             await _cts.CancelAsync().ConfigureAwait(false);
@@ -132,7 +165,13 @@ internal sealed class ItemChangedListener : IHostedService, IDisposable
         {
             if (_inFlight.TryAdd(id, 0))
             {
-                _ = EnrichAsync(id, cts.Token);
+                // Reserve the dedup slot first, then record the task (only if still running) so StopAsync
+                // can drain it; a synchronously-completed enrichment needs no draining.
+                var task = EnrichAsync(id, cts.Token);
+                if (!task.IsCompleted)
+                {
+                    _running[id] = task;
+                }
             }
         }
     }
@@ -226,6 +265,7 @@ internal sealed class ItemChangedListener : IHostedService, IDisposable
         finally
         {
             _inFlight.TryRemove(itemId, out _);
+            _running.TryRemove(itemId, out _);
         }
     }
 }

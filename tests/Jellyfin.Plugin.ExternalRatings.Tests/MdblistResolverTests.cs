@@ -115,6 +115,20 @@ public class MdblistResolverTests
     }
 
     [Fact]
+    public async Task ResolveAsync_CallerCancellation_Propagates_NotError()
+    {
+        // Caller cancellation must propagate (so the pipeline can rethrow and release the breaker's
+        // half-open probe), not be swallowed into an Error result the way a transport fault/timeout is.
+        var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, Golden("movie_found.json"));
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var act = async () => await Build(handler).ResolveAsync(Request(ItemLevel.Movie, "Tmdb", "129"), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task ResolveAsync_MalformedJson_IsError()
     {
         var handler = FakeHttpMessageHandler.Json(HttpStatusCode.OK, "{ \"ratings\": [ ");

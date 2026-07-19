@@ -39,7 +39,7 @@ internal sealed class RecordingBackupStore : IBackupStore
         return Task.CompletedTask;
     }
 
-    public void PruneOrphans(IReadOnlySet<Guid> liveItemIds)
+    public Task PruneOrphansAsync(IReadOnlySet<Guid> liveItemIds, CancellationToken cancellationToken)
     {
         foreach (var id in _entries.Keys.ToList())
         {
@@ -48,6 +48,8 @@ internal sealed class RecordingBackupStore : IBackupStore
                 _entries.Remove(id);
             }
         }
+
+        return Task.CompletedTask;
     }
 
     public Task ClearAsync(CancellationToken cancellationToken)

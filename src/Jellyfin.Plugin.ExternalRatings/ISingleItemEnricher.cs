@@ -25,4 +25,9 @@ internal interface ISingleItemEnricher
     /// <param name="itemId">The item id.</param>
     /// <returns><see langword="true"/> if the item was written by the plugin recently.</returns>
     bool WasSelfWrite(Guid itemId);
+
+    /// <summary>Flushes any pending realtime cache entries to disk (called by the listener on shutdown).</summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task that completes once the cache is flushed.</returns>
+    Task FlushPendingAsync(CancellationToken cancellationToken);
 }

@@ -64,6 +64,17 @@ public sealed class FileCacheFileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Append_CreatesThenConcatenates()
+    {
+        var store = new FileCacheFileStore(_file);
+
+        await store.AppendAsync(Bytes("line1\n"), CancellationToken.None);
+        await store.AppendAsync(Bytes("line2\n"), CancellationToken.None);
+
+        Encoding.UTF8.GetString((await store.ReadAsync(CancellationToken.None))!).Should().Be("line1\nline2\n");
+    }
+
+    [Fact]
     public async Task Delete_RemovesFile()
     {
         var store = new FileCacheFileStore(_file);

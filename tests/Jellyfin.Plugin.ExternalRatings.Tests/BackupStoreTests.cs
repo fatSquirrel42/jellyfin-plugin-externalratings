@@ -111,10 +111,28 @@ public class BackupStoreTests
         await store.EnsureBackedUpAsync(ItemA, 6.4f, CancellationToken.None);
         await store.EnsureBackedUpAsync(ItemB, 7.1f, CancellationToken.None);
 
-        store.PruneOrphans(new HashSet<Guid> { ItemA });
+        await store.PruneOrphansAsync(new HashSet<Guid> { ItemA }, CancellationToken.None);
 
         store.TryGet(ItemA, out _).Should().BeTrue();
         store.TryGet(ItemB, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task PruneOrphans_PersistsAcrossReload()
+    {
+        // Regression: the prune used to mutate only memory, so a fresh store over the same file
+        // resurrected the pruned orphan on the next load (H10 was a no-op across restarts).
+        var fileStore = new InMemoryCacheFileStore();
+        var store = new BackupStore(fileStore, new FakeClock());
+        await store.EnsureBackedUpAsync(ItemA, 6.4f, CancellationToken.None);
+        await store.EnsureBackedUpAsync(ItemB, 7.1f, CancellationToken.None);
+
+        await store.PruneOrphansAsync(new HashSet<Guid> { ItemA }, CancellationToken.None);
+
+        var reloaded = new BackupStore(fileStore, new FakeClock());
+        await reloaded.InitializeAsync(CancellationToken.None);
+        reloaded.TryGet(ItemA, out _).Should().BeTrue();
+        reloaded.TryGet(ItemB, out _).Should().BeFalse();
     }
 
     [Fact]

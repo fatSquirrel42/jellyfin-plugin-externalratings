@@ -35,6 +35,10 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     // How long a plugin write suppresses the change event it raises (self-write guard, §15 step 9).
     private static readonly TimeSpan SelfWriteWindow = TimeSpan.FromSeconds(30);
 
+    // The realtime path flushes the cache at most once per interval instead of rewriting the whole
+    // cache file after every single item (the cache is write-behind, so coalescing is safe; L).
+    private static readonly TimeSpan CacheFlushMinInterval = TimeSpan.FromSeconds(30);
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<RatingEnrichmentService> _logger;
@@ -49,6 +53,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     private readonly DailyRequestCounter _requestCounter;
     private readonly HttpClient _httpClient;
     private readonly object _statusGate = new();
+    private readonly object _flushGate = new();
 
     // One-time persistence + cold-start init guard (shared by full runs and the listener).
     private readonly SemaphoreSlim _initGate = new(1, 1);
@@ -62,13 +67,14 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     // (avoids the double-resolve window and the orphan-prune / restore-undo races between the paths).
     private readonly ExclusiveOperationGate _gate = new();
 
-    private bool _initialized;
+    private volatile bool _initialized;
     private MdblistResolver? _sharedResolver;
     private RatingPipeline? _sharedPipeline;
     private string? _pipelineApiKey;
 
     private RunSummary? _lastSummary;
     private DateTimeOffset? _lastRunUtc;
+    private DateTimeOffset _lastCacheFlushUtc = DateTimeOffset.MinValue;
 
     /// <summary>Initializes a new instance of the <see cref="RatingEnrichmentService"/> class.</summary>
     /// <param name="libraryManager">The library manager.</param>
@@ -86,7 +92,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         var dataDir = System.IO.Path.Combine(applicationPaths.DataPath, "ExternalRatings");
         _clock = new SystemClock();
         _cache = new FileRatingCache(new FileCacheFileStore(System.IO.Path.Combine(dataDir, "cache.json")), _clock);
-        _backup = new BackupStore(new FileCacheFileStore(System.IO.Path.Combine(dataDir, "backup.json")), _clock);
+        _backup = new BackupStore(new FileCacheFileStore(System.IO.Path.Combine(dataDir, "backup.jsonl")), _clock);
         _breaker = new CircuitBreaker(_clock);
         _selfWriteTracker = new SelfWriteTracker(_clock, SelfWriteWindow);
         _writer = new SelfWriteTrackingItemWriter(new JellyfinItemWriter(libraryManager), _selfWriteTracker);
@@ -105,7 +111,14 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         {
             InnerHandler = primaryHandler
         };
-        _httpClient = new HttpClient(budgetHandler) { BaseAddress = new Uri("https://api.mdblist.com/") };
+        // Cap the buffered response size (a batch returns <=200 objects) so a malfunctioning or hostile
+        // upstream cannot balloon a single response into memory; exceeding it throws HttpRequestException,
+        // which the resolver already maps to a graceful error (J).
+        _httpClient = new HttpClient(budgetHandler)
+        {
+            BaseAddress = new Uri("https://api.mdblist.com/"),
+            MaxResponseContentBufferSize = 8L * 1024 * 1024
+        };
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Jellyfin-Plugin-ExternalRatings");
     }
 
@@ -260,8 +273,13 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             TargetSource);
 
         var (_, pipeline) = GetOrBuildPipeline(apiKey);
-        var runner = new SingleItemEnrichmentRunner(pipeline, _cache, new Logger<SingleItemEnrichmentRunner>(_loggerFactory));
+        var runner = new SingleItemEnrichmentRunner(pipeline, new Logger<SingleItemEnrichmentRunner>(_loggerFactory));
         await runner.RunAsync(workItem, cancellationToken).ConfigureAwait(false);
+
+        // Persist any resolution the pipeline cached, but throttled: rewriting the whole cache file after
+        // every single realtime item would be O(cache size) per event (L). Cache is write-behind, so a
+        // coalesced flush is safe; the listener force-flushes the tail on shutdown via FlushPendingAsync.
+        await FlushCacheIfDueAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -328,6 +346,22 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     /// <returns><see langword="true"/> if the item was written by the plugin recently.</returns>
     public bool WasSelfWrite(Guid itemId) => _selfWriteTracker.IsRecent(itemId);
 
+    /// <summary>
+    /// Flushes any pending realtime cache entries to disk regardless of the throttle. Called by the
+    /// listener on shutdown so entries resolved since the last throttled flush are still persisted.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task that completes once the cache is flushed.</returns>
+    public Task FlushPendingAsync(CancellationToken cancellationToken)
+    {
+        lock (_flushGate)
+        {
+            _lastCacheFlushUtc = _clock.UtcNow;
+        }
+
+        return _cache.FlushAsync(cancellationToken);
+    }
+
     /// <summary>Gets a snapshot of the last run and the circuit-breaker state for the status endpoint.</summary>
     /// <returns>The snapshot.</returns>
     public RunStatusSnapshot GetStatusSnapshot()
@@ -353,6 +387,25 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         _backup.Dispose();
         _httpClient.Dispose();
         _initGate.Dispose();
+    }
+
+    private async Task FlushCacheIfDueAsync(CancellationToken cancellationToken)
+    {
+        var now = _clock.UtcNow;
+        bool due;
+        lock (_flushGate)
+        {
+            due = now - _lastCacheFlushUtc >= CacheFlushMinInterval;
+            if (due)
+            {
+                _lastCacheFlushUtc = now;
+            }
+        }
+
+        if (due)
+        {
+            await _cache.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task EnsureInitializedAsync(CancellationToken cancellationToken)

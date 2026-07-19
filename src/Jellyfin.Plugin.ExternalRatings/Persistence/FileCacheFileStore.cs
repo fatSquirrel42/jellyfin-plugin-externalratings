@@ -46,6 +46,22 @@ internal sealed class FileCacheFileStore : ICacheFileStore
     }
 
     /// <inheritdoc />
+    public async Task AppendAsync(byte[] content, CancellationToken cancellationToken)
+    {
+        var directory = Path.GetDirectoryName(_filePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var stream = new FileStream(_filePath, FileMode.Append, FileAccess.Write, FileShare.None);
+        await using (stream.ConfigureAwait(false))
+        {
+            await stream.WriteAsync(content, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc />
     public Task DeleteAsync(CancellationToken cancellationToken)
     {
         if (File.Exists(_filePath))

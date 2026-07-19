@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.ExternalRatings.Core.Abstractions;
@@ -106,7 +107,14 @@ internal sealed class RatingPipeline
                 return await EvaluateFoundWriteAsync(item.Ref, cached.Score.Value, options, cancellationToken).ConfigureAwait(false);
             }
 
-            // A cached no-match leaves the existing value in place; the clear (if any) already ran.
+            // A cached no-match: re-apply the ClearField decision on every pass (we cached the resolver
+            // *result*, not whether a clear ran), so a later LeaveExisting->ClearField toggle or an
+            // externally re-populated field is honored instead of waiting out the negative-cache TTL.
+            if (options.NoMatchBehavior == NoMatchBehavior.ClearField)
+            {
+                return await ClearFieldAsync(item.Ref, options, RatingOutcome.NoMatch, cancellationToken).ConfigureAwait(false);
+            }
+
             return RatingOutcome.NoMatch;
         }
 
@@ -136,11 +144,18 @@ internal sealed class RatingPipeline
         }
         catch (OperationCanceledException)
         {
+            // Release the breaker's half-open probe so a cancelled probe cannot wedge the breaker in
+            // HalfOpen and refuse every future request (see CircuitBreaker.AbandonProbe).
+            _breaker.AbandonProbe();
             throw;
         }
         catch (Exception ex)
         {
-            result = RatingResult.ForError(ex.Message);
+            // Unexpected failure — the resolver handles its own transport/parse/status errors, so this is
+            // a genuine bug. Keep the fail-safe error handling, but log with the stack for diagnosability
+            // and do NOT persist the raw message (it could echo a sensitive URL; mirrors the H9 masking).
+            _logger.LogError(ex, "Unexpected resolver failure for {Provider}:{Id}", chosen.Provider, chosen.Id);
+            result = RatingResult.ForError(ex.GetType().Name);
         }
 
         // 6. Map through the §6 table.
@@ -204,8 +219,20 @@ internal sealed class RatingPipeline
             return RatingOutcome.SkippedDryRun;
         }
 
-        await _backup.EnsureBackedUpAsync(itemRef.ItemId, current, cancellationToken).ConfigureAwait(false);
-        await _writer.WriteAsync(itemRef, targetScore, ItemWriteReason.RatingUpdated, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // Write-ahead: the backup must be durable before the write. If the backup persist fails the
+            // write never runs, so the original is never lost; if the write fails, the backup is durable
+            // and the next run retries from the cache. A per-item I/O fault must not fault the whole run.
+            await _backup.EnsureBackedUpAsync(itemRef.ItemId, current, cancellationToken).ConfigureAwait(false);
+            await _writer.WriteAsync(itemRef, targetScore, ItemWriteReason.RatingUpdated, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogError(ex, "External Ratings could not persist the rating for {ItemId} (backup/write I/O)", itemRef.ItemId);
+            return RatingOutcome.Error;
+        }
+
         return RatingOutcome.Updated;
     }
 
@@ -237,8 +264,17 @@ internal sealed class RatingPipeline
             return RatingOutcome.SkippedDryRun;
         }
 
-        await _backup.EnsureBackedUpAsync(itemRef.ItemId, current, cancellationToken).ConfigureAwait(false);
-        await _writer.WriteAsync(itemRef, null, ItemWriteReason.RatingCleared, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _backup.EnsureBackedUpAsync(itemRef.ItemId, current, cancellationToken).ConfigureAwait(false);
+            await _writer.WriteAsync(itemRef, null, ItemWriteReason.RatingCleared, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogError(ex, "External Ratings could not clear the rating for {ItemId} (backup/write I/O)", itemRef.ItemId);
+            return RatingOutcome.Error;
+        }
+
         return RatingOutcome.Cleared;
     }
 
@@ -248,6 +284,23 @@ internal sealed class RatingPipeline
         _errorCache[key] = _clock.UtcNow + options.ErrorCacheTtl;
         _logger.LogError("Rating error cached for {InputProvider}:{InputId}: {Detail}", key.InputProvider, key.InputId, detail);
         return RatingOutcome.Error;
+    }
+
+    /// <summary>
+    /// Removes expired entries from the in-memory error cache. Entries are otherwise only evicted lazily
+    /// when the same id is re-queried, so on the long-lived shared pipeline the cache would keep expired
+    /// entries for ids that are never re-processed. Called once per run (run-end, next to the cache prune).
+    /// </summary>
+    public void PruneExpiredErrors()
+    {
+        var now = _clock.UtcNow;
+        foreach (var pair in _errorCache)
+        {
+            if (pair.Value <= now)
+            {
+                _errorCache.TryRemove(pair.Key, out _);
+            }
+        }
     }
 
     private static bool IsValidScore(float? score) => score is >= 0f and <= 10f;

@@ -78,9 +78,16 @@ internal sealed class MdblistResolver : IBatchRatingResolver
             response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
             body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Genuine caller cancellation must propagate: the pipeline rethrows it and releases the
+            // breaker's half-open probe. Only a real transport fault — including an HttpClient request
+            // timeout, whose token is not the caller's — is turned into an error result below.
+            throw;
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
         {
-            return LogAndError("single", url, "transport: " + ex.GetType().Name);
+            return TransportError("single", url, ex);
         }
 
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -222,9 +229,15 @@ internal sealed class MdblistResolver : IBatchRatingResolver
             response = await _httpClient.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
             body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Propagate genuine caller cancellation (see ResolveAsync); only real transport faults and
+            // HttpClient timeouts become per-id error results.
+            throw;
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
         {
-            return ChunkError(chunk, url, "transport: " + ex.GetType().Name);
+            return ChunkTransportError(chunk, url, ex);
         }
 
         if (!response.IsSuccessStatusCode)
@@ -294,6 +307,20 @@ internal sealed class MdblistResolver : IBatchRatingResolver
         string detail)
     {
         _logger.LogError("mdblist batch {Url} chunk error: {Detail}", MdblistUrls.MaskApiKey(url), detail);
+        return ChunkResults(chunk, detail);
+    }
+
+    // Transport failures log the full exception (cause + stack) so a DNS/TLS/connection fault is
+    // distinguishable; the URL is masked (H9) and .NET transport exceptions do not embed the request
+    // URI, so the API key is not leaked. The short detail still feeds RatingResult for the status view.
+    private Dictionary<string, RatingResult> ChunkTransportError(IReadOnlyList<string> chunk, string url, Exception ex)
+    {
+        _logger.LogError(ex, "mdblist batch {Url} transport failure", MdblistUrls.MaskApiKey(url));
+        return ChunkResults(chunk, "transport: " + ex.GetType().Name);
+    }
+
+    private static Dictionary<string, RatingResult> ChunkResults(IReadOnlyList<string> chunk, string detail)
+    {
         var results = new Dictionary<string, RatingResult>(StringComparer.Ordinal);
         foreach (var id in chunk)
         {
@@ -307,5 +334,11 @@ internal sealed class MdblistResolver : IBatchRatingResolver
     {
         _logger.LogError("mdblist {Mode} {Url} error: {Detail}", mode, MdblistUrls.MaskApiKey(url), detail);
         return RatingResult.ForError(detail);
+    }
+
+    private RatingResult TransportError(string mode, string url, Exception ex)
+    {
+        _logger.LogError(ex, "mdblist {Mode} {Url} transport failure", mode, MdblistUrls.MaskApiKey(url));
+        return RatingResult.ForError("transport: " + ex.GetType().Name);
     }
 }
