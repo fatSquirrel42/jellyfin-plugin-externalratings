@@ -112,28 +112,33 @@
                     </div>
                 </form>
 
-                <h2>Actions</h2>
-                <div class="fieldDescription" style="margin-bottom:0.6em;">
-                    Manual controls. Only one action (a run, a restore, or a cache clear) can be active at a time.
-                </div>
-                <div>
-                    <button id="RunNowButton" is="emby-button" type="button" class="raised block emby-button">
-                        <span>Run enrichment now</span>
-                    </button>
-                    <div class="fieldDescription">Starts the enrichment scheduled task. Watch progress under Dashboard &gt; Scheduled Tasks.</div>
-                </div>
-                <div>
-                    <button id="RestoreAllButton" is="emby-button" type="button" class="raised block emby-button">
-                        <span>Restore all original ratings</span>
-                    </button>
-                    <div class="fieldDescription">Resets every rating the plugin changed back to its original value and clears the plugin's backups.</div>
-                </div>
-                <div>
-                    <button id="ClearCacheButton" is="emby-button" type="button" class="raised block emby-button">
-                        <span>Clear rating cache</span>
-                    </button>
-                    <div class="fieldDescription">Discards cached external ratings so the next run re-fetches them. Original-value backups are kept, so Restore still works.</div>
-                </div>
+                <!-- Wrapped in a form purely to inherit Jellyfin's form{max-width:54em} so these
+                     buttons match the Save button's width without hardcoding the value. No id, so the
+                     config form's submit handler does not apply; buttons are type="button". -->
+                <form>
+                    <h2>Actions</h2>
+                    <div class="fieldDescription" style="margin-bottom:0.6em;">
+                        Manual controls. Only one action (a run, a restore, or a cache clear) can be active at a time.
+                    </div>
+                    <div>
+                        <button id="RunNowButton" is="emby-button" type="button" class="raised block emby-button">
+                            <span>Run enrichment now</span>
+                        </button>
+                        <div class="fieldDescription">Starts the enrichment scheduled task. Watch progress under Dashboard &gt; Scheduled Tasks.</div>
+                    </div>
+                    <div>
+                        <button id="RestoreAllButton" is="emby-button" type="button" class="raised block emby-button">
+                            <span>Restore all original ratings</span>
+                        </button>
+                        <div class="fieldDescription">Resets every rating the plugin changed back to its original value and clears the plugin's backups.</div>
+                    </div>
+                    <div>
+                        <button id="ClearCacheButton" is="emby-button" type="button" class="raised block emby-button">
+                            <span>Clear rating cache</span>
+                        </button>
+                        <div class="fieldDescription">Discards cached external ratings so the next run re-fetches them. Original-value backups are kept, so Restore still works.</div>
+                    </div>
+                </form>
             </div>
         </div>
 
