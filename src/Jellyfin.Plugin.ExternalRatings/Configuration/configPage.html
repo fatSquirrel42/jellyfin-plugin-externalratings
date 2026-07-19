@@ -235,8 +235,16 @@
                     container.innerHTML = '';
                     virtualFolders.forEach(function (folder) {
                         var isChecked = enabled.indexOf(folder.ItemId) !== -1;
-                        var wrapper = document.createElement('div');
-                        wrapper.className = 'checkboxContainer';
+
+                        // Per-library block: checkbox + inline source dropdown on one row,
+                        // conversion hint on its own line beneath (Jellyfin's native inline layout).
+                        var block = document.createElement('div');
+
+                        var row = document.createElement('div');
+                        row.className = 'checkboxContainer';
+                        row.style.alignItems = 'center';
+                        row.style.marginBottom = '.3em';
+
                         var label = document.createElement('label');
                         label.className = 'emby-checkbox-label';
                         var input = document.createElement('input');
@@ -249,28 +257,38 @@
                         span.textContent = folder.Name;
                         label.appendChild(input);
                         label.appendChild(span);
-                        wrapper.appendChild(label);
+                        row.appendChild(label);
 
+                        // Inline label + dropdown via Jellyfin's selectContainer-inline; margin-left:auto
+                        // right-aligns it so the dropdowns line up across libraries.
+                        var selectContainer = document.createElement('div');
+                        selectContainer.className = 'selectContainer selectContainer-inline';
+                        selectContainer.style.marginLeft = 'auto';
+                        selectContainer.style.marginBottom = '0';
+                        var selectLabel = document.createElement('label');
+                        selectLabel.className = 'selectLabel';
+                        selectLabel.textContent = 'Source';
                         var sourceSelect = document.createElement('select');
                         sourceSelect.setAttribute('is', 'emby-select');
                         sourceSelect.className = 'librarySourceSelect emby-select';
                         sourceSelect.setAttribute('data-itemid', folder.ItemId);
-                        sourceSelect.style.marginLeft = '1.8em';
                         fillSourceOptions(sourceSelect, true);
                         sourceSelect.value = librarySourceFor(config, folder.ItemId);
+                        selectContainer.appendChild(selectLabel);
+                        selectContainer.appendChild(sourceSelect);
+                        row.appendChild(selectContainer);
 
                         var hint = document.createElement('div');
                         hint.className = 'fieldDescription';
-                        hint.style.marginLeft = '1.8em';
                         hint.textContent = sourceHintText(sourceSelect.value);
 
                         sourceSelect.addEventListener('change', function () {
                             hint.textContent = sourceHintText(sourceSelect.value);
                         });
 
-                        wrapper.appendChild(sourceSelect);
-                        wrapper.appendChild(hint);
-                        container.appendChild(wrapper);
+                        block.appendChild(row);
+                        block.appendChild(hint);
+                        container.appendChild(block);
                     });
                 }
 
