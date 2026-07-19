@@ -190,7 +190,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
 
         try
         {
-            var (items, liveIds) = BuildWorkItems(config);
+            var (items, liveIds) = BuildWorkItems(config, resolver);
             var summary = await runner.RunAsync(items, liveIds, progress, cancellationToken).ConfigureAwait(false);
 
             lock (_statusGate)
@@ -390,6 +390,15 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         }
     }
 
+    /// <summary>Gets the item levels the active resolver supports, as strings (for the status endpoint).</summary>
+    /// <returns>The supported levels (for example <c>Movie</c>, <c>Series</c>).</returns>
+    public IReadOnlyList<string> GetSupportedLevels()
+    {
+        // SupportedInputProviders needs neither the API key nor HTTP, so a capability-only instance is fine.
+        var resolver = new MdblistResolver(_httpClient, string.Empty, new Logger<MdblistResolver>(_loggerFactory));
+        return SupportedLevels(resolver).Select(level => level.ToString()).ToList();
+    }
+
     /// <summary>Disposes the owned cache, backup stores, and HTTP stack.</summary>
     public void Dispose()
     {
@@ -503,6 +512,17 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     }
 
     /// <summary>
+    /// The item levels the resolver supports (its capability feature flag). Deterministic order; the
+    /// resolver's <see cref="IRatingResolver.SupportedInputProviders"/> keys are the source of truth.
+    /// </summary>
+    /// <param name="resolver">The active resolver.</param>
+    /// <returns>The supported levels in canonical order.</returns>
+    internal static IReadOnlyList<ItemLevel> SupportedLevels(IRatingResolver resolver)
+        => new[] { ItemLevel.Movie, ItemLevel.Series, ItemLevel.Season, ItemLevel.Episode }
+            .Where(resolver.SupportedInputProviders.ContainsKey)
+            .ToArray();
+
+    /// <summary>
     /// Builds the enumeration query for the enabled libraries. Filtering is by <c>AncestorIds</c>, not
     /// <c>TopParentIds</c>: the config stores the <em>CollectionFolder</em> ids returned by
     /// <c>getVirtualFolders().ItemId</c>, and an item's <c>TopParentId</c> is the underlying physical
@@ -533,9 +553,9 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         };
     }
 
-    private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config)
+    private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config, IRatingResolver resolver)
     {
-        var query = BuildLibraryQuery(PluginConfigurationMapper.ParseLevels(config), config.EnabledLibraries);
+        var query = BuildLibraryQuery(SupportedLevels(resolver), config.EnabledLibraries);
 
         // Resolve each item's source per its library. With no overrides configured, every item uses the
         // default, so skip the per-item GetCollectionFolders lookup entirely.

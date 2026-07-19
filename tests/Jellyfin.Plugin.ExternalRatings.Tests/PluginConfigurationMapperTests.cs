@@ -73,55 +73,6 @@ public class PluginConfigurationMapperTests
     }
 
     [Fact]
-    public void ParseLevels_ValidStrings_MapToEnum()
-    {
-        var config = new PluginConfiguration { ProcessedLevels = new[] { "Movie", "Series", "Season", "Episode" } };
-
-        PluginConfigurationMapper.ParseLevels(config)
-            .Should().Equal(ItemLevel.Movie, ItemLevel.Series, ItemLevel.Season, ItemLevel.Episode);
-    }
-
-    [Fact]
-    public void ParseLevels_IsCaseInsensitive()
-    {
-        var config = new PluginConfiguration { ProcessedLevels = new[] { "movie", "SERIES" } };
-
-        PluginConfigurationMapper.ParseLevels(config).Should().Equal(ItemLevel.Movie, ItemLevel.Series);
-    }
-
-    [Fact]
-    public void ParseLevels_DropsInvalidEntries()
-    {
-        var config = new PluginConfiguration { ProcessedLevels = new[] { "Movie", "Nonsense", "Series" } };
-
-        PluginConfigurationMapper.ParseLevels(config).Should().Equal(ItemLevel.Movie, ItemLevel.Series);
-    }
-
-    [Fact]
-    public void ParseLevels_Deduplicates()
-    {
-        var config = new PluginConfiguration { ProcessedLevels = new[] { "Movie", "Movie", "Series" } };
-
-        PluginConfigurationMapper.ParseLevels(config).Should().Equal(ItemLevel.Movie, ItemLevel.Series);
-    }
-
-    [Fact]
-    public void ParseLevels_Empty_FallsBackToMovieAndSeries()
-    {
-        var config = new PluginConfiguration { ProcessedLevels = Array.Empty<string>() };
-
-        PluginConfigurationMapper.ParseLevels(config).Should().Equal(ItemLevel.Movie, ItemLevel.Series);
-    }
-
-    [Fact]
-    public void ParseLevels_AllInvalid_FallsBackToMovieAndSeries()
-    {
-        var config = new PluginConfiguration { ProcessedLevels = new[] { "foo", "bar" } };
-
-        PluginConfigurationMapper.ParseLevels(config).Should().Equal(ItemLevel.Movie, ItemLevel.Series);
-    }
-
-    [Fact]
     public void ResolveSource_NoOverrides_ReturnsDefault()
     {
         var config = new PluginConfiguration { RatingSource = "imdb" };

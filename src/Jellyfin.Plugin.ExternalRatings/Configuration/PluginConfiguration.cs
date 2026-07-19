@@ -14,8 +14,8 @@ namespace Jellyfin.Plugin.ExternalRatings.Configuration;
 /// <remarks>
 /// Collections are arrays rather than <see cref="List{T}"/>: <see cref="System.Xml.Serialization.XmlSerializer"/>
 /// replaces an array on deserialize, but <em>appends</em> to a pre-initialized <see cref="List{T}"/>
-/// property (it uses the getter and calls Add), double-counting any ctor defaults such as
-/// <c>ProcessedLevels</c> — a defect the ConfigRoundtripTests catch. Arrays still meet §10.1's real
+/// property (it uses the getter and calls Add), double-counting any non-empty ctor defaults — a
+/// defect the ConfigRoundtripTests catch. Arrays still meet §10.1's real
 /// requirement (XML-serializable, non-<see cref="Dictionary{TKey, TValue}"/> collections; M6).
 /// </remarks>
 public class PluginConfiguration : BasePluginConfiguration
@@ -37,12 +37,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the resolver settings (for example the mdblist API key), keyed by string.
     /// </summary>
     public ResolverSetting[] ResolverSettings { get; set; } = Array.Empty<ResolverSetting>();
-
-    /// <summary>
-    /// Gets or sets the processed item levels as strings (mapped to the internal
-    /// <c>ItemLevel</c> enum). Defaults to Movie and Series.
-    /// </summary>
-    public string[] ProcessedLevels { get; set; } = new[] { "Movie", "Series" };
 #pragma warning restore CA1819
 
     /// <summary>

@@ -33,32 +33,6 @@
                         <div id="ratingSourceHint" class="fieldDescription" style="display:none;"></div>
                     </div>
 
-                    <h2>Processed levels</h2>
-                    <div class="checkboxContainer">
-                        <label class="emby-checkbox-label">
-                            <input id="LevelMovie" type="checkbox" is="emby-checkbox" value="Movie" />
-                            <span>Movie</span>
-                        </label>
-                    </div>
-                    <div class="checkboxContainer">
-                        <label class="emby-checkbox-label">
-                            <input id="LevelSeries" type="checkbox" is="emby-checkbox" value="Series" />
-                            <span>Series</span>
-                        </label>
-                    </div>
-                    <div class="checkboxContainer">
-                        <label class="emby-checkbox-label">
-                            <input id="LevelSeason" type="checkbox" is="emby-checkbox" value="Season" />
-                            <span>Season</span>
-                        </label>
-                    </div>
-                    <div class="checkboxContainer">
-                        <label class="emby-checkbox-label">
-                            <input id="LevelEpisode" type="checkbox" is="emby-checkbox" value="Episode" />
-                            <span>Episode</span>
-                        </label>
-                    </div>
-
                     <h2>Behavior</h2>
                     <div class="selectContainer">
                         <label class="selectLabel" for="NoMatchBehavior">On no match</label>
@@ -146,7 +120,6 @@
             (function () {
                 var pluginUniqueId = '54015a93-7e43-4406-adcf-a15cc251dff1';
                 var apiKeyName = 'mdblist.apiKey';
-                var levelIds = ['LevelMovie', 'LevelSeries', 'LevelSeason', 'LevelEpisode'];
                 // Selectable mdblist rating sources. `rescaled` marks sources whose native scale differs
                 // from Jellyfin's 0-10, so the UI can warn that the value is converted (via mdblist's
                 // unified 0-100 score, divided by 10). Sources flagged false map 1:1 to 0-10.
@@ -337,12 +310,6 @@
                         ratingSourceHint.textContent = defaultHint;
                         ratingSourceHint.style.display = defaultHint ? '' : 'none';
 
-                        var levels = config.ProcessedLevels || [];
-                        levelIds.forEach(function (id) {
-                            var el = page.querySelector('#' + id);
-                            el.checked = levels.indexOf(el.value) !== -1;
-                        });
-
                         page.querySelector('#NoMatchBehavior').value = config.NoMatchBehavior;
                         page.querySelector('#UnsupportedLevelBehavior').value = config.UnsupportedLevelBehavior;
                         page.querySelector('#CacheTtlDays').value = config.CacheTtlDays;
@@ -382,15 +349,6 @@
                         config.LibrarySources = librarySources;
 
                         setResolverSetting(config, apiKeyName, page.querySelector('#MdblistApiKey').value);
-
-                        var levels = [];
-                        levelIds.forEach(function (id) {
-                            var el = page.querySelector('#' + id);
-                            if (el.checked) {
-                                levels.push(el.value);
-                            }
-                        });
-                        config.ProcessedLevels = levels;
 
                         config.NoMatchBehavior = page.querySelector('#NoMatchBehavior').value;
                         config.UnsupportedLevelBehavior = page.querySelector('#UnsupportedLevelBehavior').value;

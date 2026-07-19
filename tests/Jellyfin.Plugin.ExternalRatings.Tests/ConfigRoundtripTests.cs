@@ -36,7 +36,6 @@ public class ConfigRoundtripTests
 
         config.ActiveResolverKey.Should().Be("mdblist");
         config.RatingSource.Should().Be("none");
-        config.ProcessedLevels.Should().Equal("Movie", "Series");
         config.CacheTtlDays.Should().Be(7);
         config.NegativeCacheTtlDays.Should().Be(1);
         config.NoMatchBehavior.Should().Be("ClearField");
@@ -84,7 +83,6 @@ public class ConfigRoundtripTests
             {
                 new ResolverSetting { Key = "mdblist.apiKey", Value = "secret-key-value" }
             },
-            ProcessedLevels = new[] { "Movie", "Series", "Season" },
             CacheTtlDays = 14,
             NegativeCacheTtlDays = 3,
             NoMatchBehavior = "ClearField",
