@@ -30,7 +30,7 @@ internal static class PluginConfigurationMapper
         {
             DryRun = config.DryRun,
             NoMatchBehavior = ParseEnum(config.NoMatchBehavior, NoMatchBehavior.LeaveExisting),
-            UnsupportedLevelBehavior = ParseEnum(config.UnsupportedLevelBehavior, UnsupportedLevelBehavior.Skip),
+            UnsupportedLevelBehavior = ParseEnum(config.UnsupportedLevelBehavior, UnsupportedLevelBehavior.LeaveExisting),
             CacheTtl = TimeSpan.FromDays(config.CacheTtlDays),
             NegativeCacheTtl = TimeSpan.FromDays(config.NegativeCacheTtlDays)
         };

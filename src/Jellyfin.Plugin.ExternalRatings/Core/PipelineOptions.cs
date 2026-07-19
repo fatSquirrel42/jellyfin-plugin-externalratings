@@ -15,7 +15,7 @@ internal sealed record PipelineOptions
     public NoMatchBehavior NoMatchBehavior { get; init; } = NoMatchBehavior.LeaveExisting;
 
     /// <summary>Gets the behavior when the level/provider is unsupported or no id is present.</summary>
-    public UnsupportedLevelBehavior UnsupportedLevelBehavior { get; init; } = UnsupportedLevelBehavior.Skip;
+    public UnsupportedLevelBehavior UnsupportedLevelBehavior { get; init; } = UnsupportedLevelBehavior.LeaveExisting;
 
     /// <summary>Gets the write threshold: a score is only written if it differs by more than this (spec §6).</summary>
     public float Epsilon { get; init; } = 0.05f;

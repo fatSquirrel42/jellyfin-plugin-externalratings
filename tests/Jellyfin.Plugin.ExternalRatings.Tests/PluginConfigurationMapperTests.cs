@@ -49,12 +49,12 @@ public class PluginConfigurationMapperTests
     }
 
     [Fact]
-    public void ToPipelineOptions_UnknownUnsupportedBehavior_FallsBackToSkip()
+    public void ToPipelineOptions_UnknownUnsupportedBehavior_FallsBackToLeaveExisting()
     {
         var config = new PluginConfiguration { UnsupportedLevelBehavior = "garbage" };
 
         PluginConfigurationMapper.ToPipelineOptions(config)
-            .UnsupportedLevelBehavior.Should().Be(UnsupportedLevelBehavior.Skip);
+            .UnsupportedLevelBehavior.Should().Be(UnsupportedLevelBehavior.LeaveExisting);
     }
 
     [Fact]

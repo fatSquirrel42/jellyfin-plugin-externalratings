@@ -74,9 +74,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public string NoMatchBehavior { get; set; } = "ClearField";
 
     /// <summary>
-    /// Gets or sets the behavior for unsupported levels (<c>Skip</c> or <c>ClearField</c>).
+    /// Gets or sets the behavior for unsupported levels (<c>LeaveExisting</c> or <c>ClearField</c>).
     /// </summary>
-    public string UnsupportedLevelBehavior { get; set; } = "Skip";
+    public string UnsupportedLevelBehavior { get; set; } = "ClearField";
 
     /// <summary>
     /// Gets or sets the daily HTTP request limit.
