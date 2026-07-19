@@ -1,20 +1,22 @@
-name: '📝 Create/Update Release Draft & Release Bump PR'
+name: '📝 Update Release Draft'
 
 on:
   push:
-    branches:
-      - main
-    paths-ignore:
-      - build.yaml
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
-  repository_dispatch:
-    types:
-      - update-prep-command
+
+permissions:
+  contents: read
 
 jobs:
-  call:
-    uses: jellyfin/jellyfin-meta-plugins/.github/workflows/changelog.yaml@master
-    with:
-      repository-name: fatSquirrel42/jellyfin-plugin-externalratings
-    secrets:
-      token: ${{ secrets.GITHUB_TOKEN }}
+  update_release_draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create/update the draft release (push to main)
+      pull-requests: write   # autolabeler writes labels (pull_request events)
+    steps:
+      - uses: release-drafter/release-drafter@c2e2804cc59f45f57076a99af580d0fedb697927 # v7.3.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
