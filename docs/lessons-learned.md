@@ -56,3 +56,31 @@ build. But `targetAbi` only gates on `serverVersion >= targetAbi`, so `10.11.11.
 server — the catalog installs it, then it fails to load at runtime. Lesson: never bump `targetAbi` to
 "support" a newer major; a new major needs its own build (framework + host-assembly refs) on a separate
 (unstable) channel. Details + the deferral decision: `docs/jellyfin-12-compat.md`.
+
+## 8. Other plugins act on our `ItemUpdated` — but the cost is a wake-up, not a re-analysis
+Intro Skipper subscribes to `ItemAdded`/`ItemUpdated`, filters out only `ImageUpdate`, and enqueues
+`Episode → SeasonId` / `Movie → movie.Id`. The obvious guess — that every rating write costs a segment
+analysis — is **wrong**, and measuring it mattered: `BaseItemAnalyzerTask` returns early when
+`HasUncachedAnalysisWork` finds no episode in state `NotAnalyzed`, so a warm item is never re-decoded.
+Measured on the test instance (2026-09-06, 19 items, warm cache): two rating writes produced two
+enqueues, one automatic pass 60s later, four ffmpeg capability probes (~124ms) and an enumeration of
+*every* library (~3ms here; `GetMediaItems()` runs before the season filter) — and zero analyzer runs.
+The 60s debounce also collapses N writes in one window into a single pass. So the defensible claim is
+"a metadata write wakes the task", never "it re-analyzes".
+We still cannot suppress the event: `ItemUpdated` fires regardless of `ItemUpdateType` (lesson 3),
+`ImageUpdate` would be a semantic lie, and `IItemRepository.SaveItems` would skip the metadata savers
+*and* the WebSocket refresh while reimplementing host internals that change in Jellyfin 12.
+What *is* ours: never write when nothing changed (lesson 5), and never process an item the full pass
+would not. The realtime path must apply the same `SupportedLevels()` filter as `BuildWorkItems` — an
+A/B test against the unfixed build cleared an episode's rating outright (8 → null, outcome `Cleared`),
+because without it `UnsupportedLevelBehavior=ClearField` treats every Episode as an unsupported level.
+
+## 9. A cleared rating gets refilled, and `0` is not a portable "no rating"
+`ClearField` writes `null`, but Jellyfin repopulates empty fields on the next remote metadata fetch —
+`if (replaceData || !target.CommunityRating.HasValue)` — even on a normal, non-replace refresh. So
+clear → refill → clear is a slow perpetual loop, paced by the library's "automatically refresh metadata
+from the internet" setting. Writing `0` instead breaks it (a `0` *has* a value, so nothing refills it), but
+`0` is not portable: jellyfin-web hides it only because JS treats `0` as falsy (`if (item.CommunityRating)`),
+while Wholphin uses Kotlin null-checks — `communityRating?.let { ... }` runs for `0f` and renders "0.0 ★".
+Jellyfin's NFO saver writes `<rating>0</rating>` for the same reason (`HasValue`). Only `null` reads as
+"unknown" everywhere; every sentinel leaks into some client. Decision: keep `null` and accept the loop.
