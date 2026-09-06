@@ -266,6 +266,18 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             return;
         }
 
+        var (resolver, pipeline) = GetOrBuildPipeline(apiKey);
+
+        // Mirror the full pass: BuildWorkItems enumerates only the levels the resolver supports, so the
+        // realtime path must apply the same filter. Without it an Episode or Season reaches the pipeline
+        // as an unsupported level, and UnsupportedLevelBehavior=ClearField then wipes a rating the
+        // scheduled task would never have touched -- and every such write re-triggers other plugins
+        // listening on ItemUpdated (media-segment analysis, for example).
+        if (!resolver.SupportedInputProviders.ContainsKey(level.Value))
+        {
+            return;
+        }
+
         var source = PluginConfigurationMapper.ResolveSource(
             config,
             _libraryManager.GetCollectionFolders(baseItem).Select(f => f.Id));
@@ -282,7 +294,6 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             ExtractProviderIds(baseItem),
             source);
 
-        var (_, pipeline) = GetOrBuildPipeline(apiKey);
         var runner = new SingleItemEnrichmentRunner(pipeline, new Logger<SingleItemEnrichmentRunner>(_loggerFactory));
         await runner.RunAsync(workItem, cancellationToken).ConfigureAwait(false);
 
