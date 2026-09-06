@@ -11,7 +11,9 @@ fail() { echo "version-consistency: FAIL — $1" >&2; exit 1; }
 props_version=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props | head -1)
 build_version=$(grep -oP '^version:\s*"\K[^"]+' build.yaml | head -1)
 meta_version=$(jq -r '.version' src/Jellyfin.Plugin.ExternalRatings/meta.json)
-manifest_version=$(jq -r '.[0].versions[-1].version' manifest.json)
+# `jprm repo add` PREPENDS the new release, so the newest entry is versions[0], not versions[-1].
+# With a single-entry manifest both indexes agreed, which hid this until the second release.
+manifest_version=$(jq -r '.[0].versions[0].version' manifest.json)
 
 echo "version   props=$props_version build=$build_version meta=$meta_version manifest=$manifest_version"
 [ "$props_version" = "$build_version" ]    || fail "Directory.Build.props ($props_version) != build.yaml ($build_version)"
@@ -20,7 +22,7 @@ echo "version   props=$props_version build=$build_version meta=$meta_version man
 
 build_abi=$(grep -oP '^targetAbi:\s*"\K[^"]+' build.yaml | head -1)
 meta_abi=$(jq -r '.targetAbi' src/Jellyfin.Plugin.ExternalRatings/meta.json)
-manifest_abi=$(jq -r '.[0].versions[-1].targetAbi' manifest.json)
+manifest_abi=$(jq -r '.[0].versions[0].targetAbi' manifest.json)
 pkg=$(grep -oP 'Jellyfin\.Controller"\s+Version="\K[^"]+' src/Jellyfin.Plugin.ExternalRatings/Jellyfin.Plugin.ExternalRatings.csproj | head -1)
 
 echo "targetAbi build=$build_abi meta=$meta_abi manifest=$manifest_abi (controller=$pkg)"

@@ -8,6 +8,14 @@
         "category": "Metadata",
         "versions": [
             {
+                "version": "0.1.1.0",
+                "changelog": "Fixes the realtime item listener deleting episode community ratings.\n- The listener handed every changed item to the pipeline without the level filter the scheduled\n  pass applies. An Episode therefore arrived as an unsupported level, where the default\n  UnsupportedLevelBehavior=ClearField removed its rating - an item the full pass never touches.\n  The realtime path now applies the same supported-level filter as the full pass.\n- Docs: records that a metadata write wakes another plugin's item listener but does not cause\n  media-segment re-analysis, and why 0 is not a portable no-rating sentinel.\n",
+                "targetAbi": "10.11.11.0",
+                "sourceUrl": "https://github.com/fatSquirrel42/jellyfin-plugin-externalratings/releases/download/v0.1.1.0/external-ratings_0.1.1.0.zip",
+                "checksum": "c4e01997255fd69f4b3c6dddfb21320a",
+                "timestamp": "2026-09-06T18:15:58Z"
+            },
+            {
                 "version": "0.1.0.0",
                 "changelog": "First release. Resolves MyAnimeList community scores (via the mdblist API) into Jellyfin's native\nCommunityRating for Movies and Series.\n- Lookup by Tmdb/Imdb/Tvdb id with positive + negative caching, batch prefetch, a daily request\n  budget, and a shared circuit breaker that pauses on repeated errors / HTTP 429.\n- Triggers: on-demand scheduled task, automatic post-library-scan pass, and a realtime item listener\n  that enriches items as they change (debounced, self-write-guarded, ignores manual edits).\n- Writes via ItemUpdateType.MetadataEdit so per-library NFO savers stay consistent with the DB.\n- Locked items (IsLocked) are never overwritten, so a manually set rating can be protected.\n- Config page actions: run now, restore all original ratings, clear the rating cache.\nTargets Jellyfin 10.11.x (net9.0).\n",
                 "targetAbi": "10.11.11.0",
