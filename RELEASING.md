@@ -11,6 +11,30 @@ as a Jellyfin plugin repository. Releases are cut manually with [`jprm`](https:/
 
 ## Steps
 
+### Automated (preferred)
+
+1. Update `changelog:` in `build.yaml` on `main` through a normal PR. A changelog-only change moves no
+   version, so the *Version Consistency* check stays green.
+2. **Actions -> 🚀 Release -> Run workflow**, entering the new four-part version (e.g. `0.1.2.0`).
+
+The workflow bumps `Directory.Build.props`, `build.yaml` and `meta.json`, runs the offline tests, builds
+the package with `jprm`, writes the new `manifest.json` entry, pushes the bump to `main`, publishes the
+GitHub Release with the asset, and finally re-downloads that asset to confirm its md5 equals the manifest
+checksum.
+
+Why the workflow builds *and* publishes instead of uploading a locally built zip: the artifact's md5 goes
+into `manifest.json`, and .NET builds are not bit-reproducible (jprm also stamps a timestamp into the
+`meta.json` inside the zip). Any split where one side builds and the other publishes leaves `checksum`
+disagreeing with the published asset.
+
+It also pushes the bump *before* publishing the release, because `manifest.json` advertises the asset URL
+and an entry whose asset does not exist yet breaks `Catalog -> Install` for everyone. Doing both inside
+one job shrinks that window to seconds.
+
+### Manual fallback
+
+Needs `jprm` (`pip install --user jprm`) and the GitHub CLI (`gh auth login`).
+
 1. **Bump the version** — it lives in **four** places and they must all match (the fourth,
    `manifest.json`, is written for you in step 5). All four are bumped **manually** — the `changelog.yaml`
    automation only drafts release notes and touches no version file. CI enforces agreement via

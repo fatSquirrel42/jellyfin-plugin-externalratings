@@ -1,0 +1,159 @@
+name: '🚀 Release'
+
+# Cuts a release end to end: bumps the four hand-maintained version places, builds the package with
+# jprm, pushes the bump, and publishes the GitHub Release with the asset.
+#
+# Why one job does all of it: the artifact's md5 goes into manifest.json, and .NET builds are not
+# bit-reproducible (jprm also stamps a timestamp into the meta.json inside the zip). A workflow that
+# only published a locally built zip, or only rebuilt one, would leave manifest.checksum disagreeing
+# with the published asset. So the same build that produces the asset also writes the manifest entry.
+#
+# Ordering matters: manifest.json advertises the asset URL, and per RELEASING.md a manifest entry
+# whose asset does not exist breaks `Catalog -> Install` for everyone. The bump is pushed first and
+# the release published immediately after, inside this job, so the window is seconds instead of
+# however long a human takes.
+#
+# Before dispatching: update `changelog:` in build.yaml on main. A changelog-only change keeps the
+# version-consistency check green because no version moves.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, four parts, e.g. 0.1.2.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate the version format
+        run: |
+          echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::version must be four dot-separated numbers, e.g. 0.1.2.0"; exit 1; }
+
+      - name: Refuse to reuse an existing tag
+        run: |
+          if git rev-parse -q --verify "refs/tags/v${{ inputs.version }}" >/dev/null; then
+            echo "::error::tag v${{ inputs.version }} already exists"
+            exit 1
+          fi
+
+      # build.yaml feeds the generated meta.json; non-ASCII here (a stray em dash from an editor) is
+      # silently mangled into mojibake in the catalog listing. Cheap to guard, annoying to discover.
+      - name: build.yaml must stay ASCII
+        run: |
+          if LC_ALL=C grep -qP '[^\x00-\x7F]' build.yaml; then
+            echo "::error::build.yaml contains non-ASCII characters"
+            LC_ALL=C grep -nP '[^\x00-\x7F]' build.yaml
+            exit 1
+          fi
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install jprm
+        run: pip install jprm
+
+      - name: Run the tests before cutting anything
+        run: dotnet test --filter "Category!=Live" --nologo
+
+      - name: Bump the three source version files
+        env:
+          V: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import json, os, re
+          v = os.environ['V']
+
+          p = 'Directory.Build.props'
+          s = open(p, encoding='utf-8').read()
+          for tag in ('Version', 'AssemblyVersion', 'FileVersion'):
+              s = re.sub(rf'<{tag}>[^<]+</{tag}>', f'<{tag}>{v}</{tag}>', s)
+          open(p, 'w', encoding='utf-8').write(s)
+
+          p = 'build.yaml'
+          s = open(p, encoding='utf-8').read()
+          s = re.sub(r'^version:\s*"[^"]+"', f'version: "{v}"', s, count=1, flags=re.M)
+          open(p, 'w', encoding='utf-8').write(s)
+
+          p = 'src/Jellyfin.Plugin.ExternalRatings/meta.json'
+          m = json.load(open(p, encoding='utf-8'))
+          m['version'] = v
+          open(p, 'w', encoding='utf-8').write(json.dumps(m, indent=4) + '\n')
+          PY
+
+      - name: Build the package
+        env:
+          V: ${{ inputs.version }}
+        run: jprm plugin build . --output ./artifacts --version "$V"
+
+      # jprm PREPENDS the new entry, so the newest version is manifest versions[0]; check-versions.sh
+      # reads it there.
+      - name: Write the manifest entry
+        env:
+          V: ${{ inputs.version }}
+        run: |
+          jprm repo add \
+            --plugin-url "https://github.com/${{ github.repository }}/releases/download/v$V/external-ratings_$V.zip" \
+            ./manifest.json \
+            "./artifacts/external-ratings_$V.zip"
+
+      - name: Check version + targetAbi consistency
+        run: bash scripts/check-versions.sh
+
+      # A push authenticated with GITHUB_TOKEN deliberately does not trigger other workflows, which is
+      # why the consistency check above runs here rather than being left to the push event.
+      - name: Commit and push the bump
+        env:
+          V: ${{ inputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Directory.Build.props build.yaml src/Jellyfin.Plugin.ExternalRatings/meta.json manifest.json
+          git commit -m "release: $V"
+          git push origin main
+
+      - name: Publish the release
+        env:
+          V: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -c "import json; print(json.load(open('artifacts/external-ratings_$V.zip.meta.json'))['changelog'])" > notes.md
+          gh release create "v$V" "artifacts/external-ratings_$V.zip" \
+            --target "$(git rev-parse HEAD)" \
+            --title "v$V" \
+            --notes-file notes.md
+
+      # RELEASING.md's final gate: the advertised URL must resolve and its md5 must equal what the
+      # manifest claims, or Catalog -> Install fails for everyone.
+      - name: Verify the published asset
+        env:
+          V: ${{ inputs.version }}
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/v$V/external-ratings_$V.zip"
+          curl -sfL --retry 5 --retry-delay 3 -o published.zip "$URL"
+          DL=$(md5sum published.zip | cut -d' ' -f1)
+          MAN=$(jq -r '.[0].versions[0].checksum' manifest.json)
+          echo "downloaded=$DL manifest=$MAN"
+          [ "$DL" = "$MAN" ] || { echo "::error::checksum mismatch between the published asset and manifest.json"; exit 1; }
+          {
+            echo "### Released v$V"
+            echo
+            echo "- asset: $URL"
+            echo "- md5: \`$DL\`"
+          } >> "$GITHUB_STEP_SUMMARY"
