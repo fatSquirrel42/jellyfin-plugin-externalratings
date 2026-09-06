@@ -238,7 +238,10 @@ internal sealed class RatingPipeline
 
     private async Task<RatingOutcome> HandleUnsupportedAsync(RatingWorkItem item, PipelineOptions options, CancellationToken cancellationToken)
     {
-        // "NotSupportedForLevel / no id" share one row: skip by default, clear on opt-in, never cache.
+        // "NotSupportedForLevel / no id" share one row: the configured behavior decides, never cached.
+        // Note the shipped default is ClearField, not skip -- PluginConfiguration overrides the
+        // LeaveExisting default in PipelineOptions. The realtime path must therefore filter
+        // unsupported levels before the pipeline, or Episodes reach this row and lose their rating.
         var levelSupported = InputIdSelector.ProviderPriority(item.Level).Count > 0;
         var baseOutcome = levelSupported ? RatingOutcome.SkippedNoId : RatingOutcome.NotSupported;
 
