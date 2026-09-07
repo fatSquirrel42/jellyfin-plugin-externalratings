@@ -116,13 +116,41 @@ for the recurring paths.
 At episode scale this is the difference between a one-off clear and a per-run treadmill, and it
 removes the main objection to keeping `ClearField` as the default for the new levels.
 
-## 7. What this means for the implementation
+## 7. Wholphin never displays a Season rating — determined from its source
+
+Answered by reading `damontecres/Wholphin` (Android TV, the target client per
+`lessons-learned.md`) at 2026-09-05 rather than by eye:
+
+- **A Season has no detail page.** `BaseItem.destination()` maps `BaseItemKind.SEASON`
+  unconditionally to `Destination.SeriesOverview(...)` — the comment says "Redirect episodes &
+  seasons to their series if possible". There is no `ui/detail/season/` package.
+- **The series page always shows the *series'* rating.** `SeriesDetails.kt` renders
+  `series.ui.quickDetails`; selecting a season does not swap in season-level details.
+- **No card renders a rating.** `SeasonCard.kt` draws title and subtitle only, and `SimpleStarRating`
+  is used nowhere outside `Rating.kt` itself and a filter control.
+
+Episodes are the opposite — they do display it, in two places:
+
+- `EpisodeDetailsHeader.kt` → `QuickDetails(ep.ui.quickDetails, …)` on the episode page.
+- `FocusedEpisodeHeader.kt` → the focused episode's details on the series page.
+
+`QuickDetailsData` builds `communityRating` type-agnostically (`data.communityRating?.let { … }`,
+formatted `%.1f` plus a star glyph), gated by the `COMMUNITY_RATING` display toggle, whose default
+is all toggles on (`AppPreference.DisplayTogglesPref.defaultValue = DisplayToggle.entries`). Note
+the toggle is user-facing: if it has been switched off, no rating shows anywhere.
+
+**Consequence: writing Season ratings buys this user nothing.** The value would sit in the database
+unread. Season support is therefore optional — worth building only for other clients (jellyfin-web
+shows a season rating) or not at all.
+
+## 8. What this means for the implementation
 
 1. Build an **IMDb dataset resolver**; do not build on mdblist for these levels.
 2. Prefer **route A**, fall back to **route B**. Validate route A: the id must differ from the
    series id and must appear as a child row in `title.episode`.
-3. Aggregate **season** scores from episode data with a minimum-coverage threshold; IMDb has no
-   season score to read.
+3. **Episodes first.** Wholphin does not render a Season rating at all (§7), so season
+   aggregation is optional scope. If built: aggregate from episode data with a minimum-coverage
+   threshold, since IMDb has no season score to read.
 4. Plumb the **parent chain** and the season/episode numbers through `RatingWorkItem`,
    `RatingRequest` and `RatingCacheKey` — the cache key has no S/E field today, so every episode
    of a series would collide.
