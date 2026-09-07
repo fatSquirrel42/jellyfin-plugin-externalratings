@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.ExternalRatings.Api;
 using Jellyfin.Plugin.ExternalRatings.Configuration;
 using Jellyfin.Plugin.ExternalRatings.Core;
 using Jellyfin.Plugin.ExternalRatings.Core.Abstractions;
@@ -450,6 +451,32 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         // its level and source lists from this endpoint.
         var resolver = BuildResolver(Plugin.Instance?.Configuration.ActiveResolverKey, string.Empty);
         return SupportedLevels(resolver).Select(level => level.ToString()).ToList();
+    }
+
+    /// <summary>
+    /// Gets the capabilities of every selectable resolver (for the status endpoint). Capability is
+    /// static, so these instances need no API key and make no requests.
+    /// </summary>
+    /// <returns>One entry per selectable resolver.</returns>
+    public IReadOnlyList<ResolverCapabilities> GetResolverCapabilities()
+    {
+        var keys = new[] { MdblistResolver.ResolverKey, ImdbDatasetResolver.ResolverKey };
+        var result = new List<ResolverCapabilities>(keys.Length);
+
+        foreach (var key in keys)
+        {
+            var resolver = BuildResolver(key, string.Empty);
+            result.Add(new ResolverCapabilities
+            {
+                Key = resolver.Key,
+                DisplayName = resolver.DisplayName,
+                Levels = SupportedLevels(resolver).Select(level => level.ToString()).ToList(),
+                Sources = resolver.SupportedRatingSources.ToList(),
+                RequiresApiKey = resolver is MdblistResolver
+            });
+        }
+
+        return result;
     }
 
     /// <summary>Gets the external rating sources the active resolver can return (for the status endpoint).</summary>

@@ -17,12 +17,28 @@
 
                     <div id="nfoWarning" class="fieldDescription" style="display:none;padding:0.6em;margin-bottom:1em;background:#6a1b1b;color:#fff;border-radius:4px;"></div>
 
-                    <h2>Connection</h2>
-                    <div class="inputContainer">
+                    <h2>Provider</h2>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="ActiveResolverKey">Rating provider</label>
+                        <select is="emby-select" id="ActiveResolverKey" name="ActiveResolverKey" class="emby-select-withcolor emby-select"></select>
+                        <div id="resolverHint" class="fieldDescription"></div>
+                    </div>
+
+                    <div id="apiKeyContainer" class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="MdblistApiKey">mdblist API key</label>
                         <input id="MdblistApiKey" name="MdblistApiKey" type="password" is="emby-input" autocomplete="off" />
                         <div class="fieldDescription">Stored in plaintext in the plugin configuration file (server file permissions apply).</div>
                     </div>
+
+                    <div id="datasetContainer" class="inputContainer" style="display:none;">
+                        <label class="inputLabel inputLabelUnfocused" for="ImdbDatasetRefreshHours">Dataset refresh (hours)</label>
+                        <input id="ImdbDatasetRefreshHours" name="ImdbDatasetRefreshHours" type="number" min="0" step="1" is="emby-input" />
+                        <div class="fieldDescription">IMDb regenerates the ratings file once a day, so there is nothing to gain below 24. The download is roughly 9&nbsp;MB and needs no key or quota. 0 disables refreshing.</div>
+                    </div>
+
+                    <h2>Item levels</h2>
+                    <div class="fieldDescription">Which kinds of item to write ratings for. Levels the selected provider cannot supply are shown disabled. Enabling episodes can multiply the number of processed items by a hundred in a TV library.</div>
+                    <div id="enabledLevels"></div>
 
                     <h2>Rating source</h2>
                     <div class="selectContainer">
@@ -128,7 +144,104 @@
                 // Scale, Rescaled }; `Rescaled` marks sources whose native scale differs from Jellyfin's
                 // 0–10, so the UI can warn that the value is converted.
                 var sources = [];
+                // Capabilities of every selectable resolver, so switching providers updates the
+                // source and level controls immediately instead of after a save and reload.
+                var resolvers = [];
                 var page;
+
+                var allLevels = ['Movie', 'Series', 'Season', 'Episode'];
+
+                function resolverByKey(key) {
+                    for (var i = 0; i < resolvers.length; i++) {
+                        if (resolvers[i].Key === key) {
+                            return resolvers[i];
+                        }
+                    }
+                    return resolvers[0] || null;
+                }
+
+                function selectedLevels() {
+                    var out = [];
+                    page.querySelectorAll('.levelCheckbox').forEach(function (el) {
+                        if (el.checked && !el.disabled) {
+                            out.push(el.getAttribute('data-level'));
+                        }
+                    });
+                    return out;
+                }
+
+                // Levels the *resolver* cannot do are rendered disabled rather than hidden, so it is
+                // visible why episodes are unavailable on mdblist instead of the control just missing.
+                function renderLevels(enabled, capableLevels) {
+                    var host = page.querySelector('#enabledLevels');
+                    host.innerHTML = '';
+                    allLevels.forEach(function (level) {
+                        var capable = capableLevels.indexOf(level) >= 0;
+                        var row = document.createElement('div');
+                        row.className = 'checkboxContainer';
+                        var label = document.createElement('label');
+                        label.className = 'emby-checkbox-label';
+                        var input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.setAttribute('is', 'emby-checkbox');
+                        input.className = 'levelCheckbox';
+                        input.setAttribute('data-level', level);
+                        input.checked = capable && enabled.indexOf(level) >= 0;
+                        input.disabled = !capable;
+                        var span = document.createElement('span');
+                        span.textContent = capable ? level : level + ' (not available from this provider)';
+                        label.appendChild(input);
+                        label.appendChild(span);
+                        row.appendChild(label);
+                        host.appendChild(row);
+                    });
+                }
+
+                // Applies a resolver selection to every dependent control. Called on load and on
+                // change; `keepSelection` preserves what the user already picked where still valid.
+                function applyResolver(key, enabledLevels, currentSource) {
+                    var resolver = resolverByKey(key);
+                    if (!resolver) {
+                        return;
+                    }
+
+                    sources = resolver.Sources || [];
+                    renderLevels(enabledLevels || [], resolver.Levels || []);
+
+                    page.querySelector('#apiKeyContainer').style.display = resolver.RequiresApiKey ? '' : 'none';
+                    page.querySelector('#datasetContainer').style.display = resolver.RequiresApiKey ? 'none' : '';
+                    page.querySelector('#resolverHint').textContent = resolver.RequiresApiKey
+                        ? 'Queries the mdblist API. Needs a key and is limited to 1000 requests a day.'
+                        : 'Reads IMDb’s own ratings dataset from a local copy. No key, no request limit, and it covers episodes.';
+
+                    var ratingSourceSelect = page.querySelector('#RatingSource');
+                    fillSourceOptions(ratingSourceSelect, false);
+                    var noneOpt = document.createElement('option');
+                    noneOpt.value = 'none';
+                    noneOpt.textContent = '(Don’t set community rating)';
+                    ratingSourceSelect.insertBefore(noneOpt, ratingSourceSelect.firstChild);
+                    // Keep the current source if the new resolver can still serve it, else fall back
+                    // to "none" rather than silently switching the user to a different source.
+                    ratingSourceSelect.value = sourceByValue(currentSource) ? currentSource : 'none';
+                    updateSourceHint();
+
+                    // Per-library overrides must be re-validated too. A stale override naming a
+                    // source the new provider cannot serve is not a cosmetic problem: it reaches the
+                    // resolver, errors on every item of that library, and trips the circuit breaker
+                    // for the whole run.
+                    page.querySelectorAll('.librarySourceSelect').forEach(function (el) {
+                        var previous = el.value;
+                        fillSourceOptions(el, true);
+                        el.value = sourceByValue(previous) ? previous : '';
+                    });
+                }
+
+                function updateSourceHint() {
+                    var hint = page.querySelector('#ratingSourceHint');
+                    var text = sourceHintText(page.querySelector('#RatingSource').value);
+                    hint.textContent = text;
+                    hint.style.display = text ? '' : 'none';
+                }
 
                 function sourceByValue(value) {
                     for (var i = 0; i < sources.length; i++) {
@@ -294,25 +407,28 @@
                         var folders = results[1];
                         var status = results[2];
 
-                        // The selectable rating sources come from the active resolver's capability, so the
-                        // dropdowns must be populated from the status response before rendering them.
+                        // Every resolver's capability comes from the Status endpoint, so the source
+                        // and level controls can react to a provider change without a save/reload.
+                        resolvers = status.Resolvers || [];
                         sources = status.SupportedSources || [];
 
-                        renderLibraries(config, folders);
-                        page.querySelector('#MdblistApiKey').value = getResolverSetting(config, apiKeyName);
+                        var resolverSelect = page.querySelector('#ActiveResolverKey');
+                        resolverSelect.innerHTML = '';
+                        resolvers.forEach(function (r) {
+                            var opt = document.createElement('option');
+                            opt.value = r.Key;
+                            opt.textContent = r.DisplayName;
+                            resolverSelect.appendChild(opt);
+                        });
+                        resolverSelect.value = config.ActiveResolverKey || 'mdblist';
 
-                        var ratingSourceSelect = page.querySelector('#RatingSource');
-                        fillSourceOptions(ratingSourceSelect, false);
-                        // "none" default: leave community ratings untouched unless a library overrides it.
-                        var noneOpt = document.createElement('option');
-                        noneOpt.value = 'none';
-                        noneOpt.textContent = '(Don’t set community rating)';
-                        ratingSourceSelect.insertBefore(noneOpt, ratingSourceSelect.firstChild);
-                        ratingSourceSelect.value = config.RatingSource || 'none';
-                        var ratingSourceHint = page.querySelector('#ratingSourceHint');
-                        var defaultHint = sourceHintText(ratingSourceSelect.value);
-                        ratingSourceHint.textContent = defaultHint;
-                        ratingSourceHint.style.display = defaultHint ? '' : 'none';
+                        page.querySelector('#MdblistApiKey').value = getResolverSetting(config, apiKeyName);
+                        page.querySelector('#ImdbDatasetRefreshHours').value = config.ImdbDatasetRefreshHours;
+
+                        // Populates the source dropdown and level checkboxes for the chosen resolver.
+                        applyResolver(resolverSelect.value, config.EnabledLevels || [], config.RatingSource || 'none');
+
+                        renderLibraries(config, folders);
 
                         page.querySelector('#NoMatchBehavior').value = config.NoMatchBehavior;
                         page.querySelector('#UnsupportedLevelBehavior').value = config.UnsupportedLevelBehavior;
@@ -353,6 +469,10 @@
                         config.LibrarySources = librarySources;
 
                         setResolverSetting(config, apiKeyName, page.querySelector('#MdblistApiKey').value);
+
+                        config.ActiveResolverKey = page.querySelector('#ActiveResolverKey').value;
+                        config.EnabledLevels = selectedLevels();
+                        config.ImdbDatasetRefreshHours = parseInt(page.querySelector('#ImdbDatasetRefreshHours').value, 10);
 
                         config.NoMatchBehavior = page.querySelector('#NoMatchBehavior').value;
                         config.UnsupportedLevelBehavior = page.querySelector('#UnsupportedLevelBehavior').value;
@@ -436,11 +556,12 @@
                         return false;
                     });
 
-                document.querySelector('#RatingSource').addEventListener('change', function () {
-                    var hintEl = page.querySelector('#ratingSourceHint');
-                    var text = sourceHintText(this.value);
-                    hintEl.textContent = text;
-                    hintEl.style.display = text ? '' : 'none';
+                document.querySelector('#RatingSource').addEventListener('change', updateSourceHint);
+
+                document.querySelector('#ActiveResolverKey').addEventListener('change', function () {
+                    // Keep whatever the user has already ticked and selected; applyResolver drops
+                    // anything the newly chosen provider cannot do.
+                    applyResolver(this.value, selectedLevels(), page.querySelector('#RatingSource').value);
                 });
 
                 document.querySelector('#RunNowButton').addEventListener('click', runNow);

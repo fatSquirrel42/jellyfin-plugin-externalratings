@@ -33,6 +33,18 @@ public class StatusResponse
     public IReadOnlyList<RatingSourceInfo> SupportedSources { get; init; } = new List<RatingSourceInfo>();
 
     /// <summary>
+    /// Gets the capabilities of every selectable resolver, not just the active one, so the config
+    /// page can switch resolvers and show the resulting levels and sources without a save/reload.
+    /// </summary>
+    public IReadOnlyList<ResolverCapabilities> Resolvers { get; init; } = new List<ResolverCapabilities>();
+
+    /// <summary>
+    /// Gets the item levels currently enabled in the configuration (intersected with the active
+    /// resolver's capability at run time).
+    /// </summary>
+    public IReadOnlyList<string> EnabledLevels { get; init; } = new List<string>();
+
+    /// <summary>
     /// Gets the configured daily HTTP request limit.
     /// </summary>
     public int DailyRequestLimit { get; init; }
