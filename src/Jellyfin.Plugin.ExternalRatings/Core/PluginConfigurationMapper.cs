@@ -17,6 +17,12 @@ internal static class PluginConfigurationMapper
     /// </summary>
     public const string NoSource = "none";
 
+    /// <summary>The canonical level order, broad to narrow.</summary>
+    private static readonly ItemLevel[] CanonicalLevels =
+    {
+        ItemLevel.Movie, ItemLevel.Series, ItemLevel.Season, ItemLevel.Episode
+    };
+
     /// <summary>Builds <see cref="PipelineOptions"/> from the configuration.</summary>
     /// <param name="config">The plugin configuration.</param>
     /// <returns>The pipeline options; unknown enum strings fall back to their spec defaults.</returns>
@@ -32,6 +38,41 @@ internal static class PluginConfigurationMapper
             CacheTtl = TimeSpan.FromDays(config.CacheTtlDays),
             NegativeCacheTtl = TimeSpan.FromDays(config.NegativeCacheTtlDays)
         };
+    }
+
+    /// <summary>
+    /// Parses configured level names into <see cref="ItemLevel"/> values, in canonical order.
+    /// Unknown or blank names are ignored rather than failing the run, and duplicates collapse.
+    /// </summary>
+    /// <param name="levelNames">The configured level names.</param>
+    /// <returns>The parsed levels, deduplicated and ordered Movie, Series, Season, Episode.</returns>
+    public static IReadOnlyList<ItemLevel> ParseLevels(IEnumerable<string>? levelNames)
+    {
+        if (levelNames is null)
+        {
+            return Array.Empty<ItemLevel>();
+        }
+
+        var wanted = new HashSet<ItemLevel>();
+        foreach (var name in levelNames)
+        {
+            if (!string.IsNullOrWhiteSpace(name) && Enum.TryParse<ItemLevel>(name.Trim(), ignoreCase: true, out var level))
+            {
+                wanted.Add(level);
+            }
+        }
+
+        // Canonical order, so the enumeration order never depends on how the config was written.
+        var ordered = new List<ItemLevel>(wanted.Count);
+        foreach (var level in CanonicalLevels)
+        {
+            if (wanted.Contains(level))
+            {
+                ordered.Add(level);
+            }
+        }
+
+        return ordered;
     }
 
     /// <summary>Whether the resolved source means enrichment should be skipped.</summary>

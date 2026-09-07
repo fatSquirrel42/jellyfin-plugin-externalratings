@@ -47,6 +47,37 @@ public class ConfigRoundtripTests
         config.EnabledLibraries.Should().BeEmpty();
         config.LibrarySources.Should().BeEmpty();
         config.ResolverSettings.Should().BeEmpty();
+        config.EnabledLevels.Should().Equal("Movie", "Series");
+        config.ImdbDatasetRefreshHours.Should().Be(24);
+    }
+
+    [Fact]
+    public void EnabledLevels_SurviveARoundtripWithoutDuplicating()
+    {
+        // The array-not-List rule: XmlSerializer appends to a pre-initialised List, so a defaulted
+        // collection comes back doubled. EnabledLevels ships with a non-empty default, which is
+        // exactly the shape that trips it.
+        var result = Roundtrip(new PluginConfiguration());
+
+        result.EnabledLevels.Should().Equal("Movie", "Series");
+    }
+
+    [Fact]
+    public void EnabledLevels_RoundtripAnExplicitSelection()
+    {
+        var result = Roundtrip(new PluginConfiguration { EnabledLevels = new[] { "Movie", "Series", "Episode" } });
+
+        result.EnabledLevels.Should().Equal("Movie", "Series", "Episode");
+    }
+
+    [Fact]
+    public void EnabledLevels_AnEmptySelectionStaysEmpty()
+    {
+        // "Process nothing" must survive; coming back as the default would re-enable writes the
+        // user turned off.
+        var result = Roundtrip(new PluginConfiguration { EnabledLevels = Array.Empty<string>() });
+
+        result.EnabledLevels.Should().BeEmpty();
     }
 
     [Fact]

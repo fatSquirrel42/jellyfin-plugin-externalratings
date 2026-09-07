@@ -15,6 +15,7 @@ using Jellyfin.Plugin.ExternalRatings.Resolvers;
 using Jellyfin.Plugin.ExternalRatings.Resolvers.Imdb;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
@@ -307,12 +308,12 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
 
         var (resolver, pipeline) = GetOrBuildPipeline(config.ActiveResolverKey, apiKey ?? string.Empty);
 
-        // Mirror the full pass: BuildWorkItems enumerates only the levels the resolver supports, so the
-        // realtime path must apply the same filter. Without it an Episode or Season reaches the pipeline
-        // as an unsupported level, and UnsupportedLevelBehavior=ClearField then wipes a rating the
-        // scheduled task would never have touched -- and every such write re-triggers other plugins
-        // listening on ItemUpdated (media-segment analysis, for example).
-        if (!resolver.SupportedInputProviders.ContainsKey(level.Value))
+        // Mirror the full pass exactly: it enumerates ProcessedLevels, so the realtime path must
+        // filter by the same thing -- capability *and* the user's opt-in. Without it an Episode or
+        // Season reaches the pipeline as an unsupported level, and UnsupportedLevelBehavior=ClearField
+        // then wipes a rating the scheduled task would never have touched -- and every such write
+        // re-triggers other plugins listening on ItemUpdated (media-segment analysis, for example).
+        if (!ProcessedLevels(resolver, config).Contains(level.Value))
         {
             return;
         }
@@ -625,6 +626,25 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             .ToArray();
 
     /// <summary>
+    /// The levels actually enumerated: what the resolver can do, intersected with what the user
+    /// opted into via <see cref="PluginConfiguration.EnabledLevels"/>.
+    /// </summary>
+    /// <remarks>
+    /// Both the full pass and the realtime path must call this and nothing else. Lesson 8 in
+    /// <c>docs/lessons-learned.md</c> is the regression from the two disagreeing: a level the full
+    /// pass skipped reached the pipeline through the listener and
+    /// <c>UnsupportedLevelBehavior=ClearField</c> wiped the rating.
+    /// </remarks>
+    /// <param name="resolver">The active resolver.</param>
+    /// <param name="config">The plugin configuration.</param>
+    /// <returns>The processed levels, in canonical order.</returns>
+    internal static IReadOnlyList<ItemLevel> ProcessedLevels(IRatingResolver resolver, PluginConfiguration config)
+    {
+        var enabled = PluginConfigurationMapper.ParseLevels(config.EnabledLevels);
+        return SupportedLevels(resolver).Where(enabled.Contains).ToArray();
+    }
+
+    /// <summary>
     /// Builds the enumeration query for the enabled libraries. Filtering is by <c>AncestorIds</c>, not
     /// <c>TopParentIds</c>: the config stores the <em>CollectionFolder</em> ids returned by
     /// <c>getVirtualFolders().ItemId</c>, and an item's <c>TopParentId</c> is the underlying physical
@@ -663,7 +683,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
 
     private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config, IRatingResolver resolver)
     {
-        var query = BuildLibraryQuery(SupportedLevels(resolver), config.EnabledLibraries);
+        var query = BuildLibraryQuery(ProcessedLevels(resolver, config), config.EnabledLibraries);
 
         // Resolve each item's source per its library. With no overrides configured, every item uses the
         // default, so skip the per-item GetCollectionFolders lookup entirely.
@@ -711,7 +731,29 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         return (items, liveIds);
     }
 
+    /// <summary>
+    /// Reads the provider ids to resolve an item by, dropping any an Episode only carries because
+    /// it was inherited from its series (see <see cref="InheritedProviderIdFilter"/>).
+    /// </summary>
+    /// <param name="item">The library item.</param>
+    /// <returns>The usable provider ids.</returns>
     private static Dictionary<string, string> ExtractProviderIds(BaseItem item)
+    {
+        var ids = ReadProviderIds(item);
+
+        if (item is Episode episode)
+        {
+            var series = episode.Series;
+            if (series is not null)
+            {
+                ids = InheritedProviderIdFilter.Strip(ids, ReadProviderIds(series));
+            }
+        }
+
+        return ids;
+    }
+
+    private static Dictionary<string, string> ReadProviderIds(BaseItem item)
     {
         var ids = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         AddIfPresent(ids, item, MetadataProvider.Tmdb);

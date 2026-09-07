@@ -44,6 +44,21 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string ActiveResolverKey { get; set; } = "mdblist";
 
+#pragma warning disable CA1819 // Properties should not return arrays - XmlSerializer needs a settable array here.
+    /// <summary>
+    /// Gets or sets the item levels to process, by name (<c>Movie</c>, <c>Series</c>, <c>Season</c>,
+    /// <c>Episode</c>). Intersected with what the active resolver can actually do, so enabling a
+    /// level the resolver does not support is a no-op.
+    /// </summary>
+    /// <remarks>
+    /// Season and Episode are off by default. This is a volume control, not a safety one: a TV
+    /// library has one to two orders of magnitude more episodes than series, and an existing
+    /// install must not start writing thousands of items because it was upgraded. An empty array
+    /// means "process nothing" and is deliberately distinct from the default.
+    /// </remarks>
+    public string[] EnabledLevels { get; set; } = { "Movie", "Series" };
+#pragma warning restore CA1819
+
     /// <summary>
     /// Gets or sets how many hours a downloaded copy of IMDb's <c>title.ratings</c> dataset stays
     /// fresh. Only used by the <c>imdb-dataset</c> resolver. IMDb regenerates the file daily, so
