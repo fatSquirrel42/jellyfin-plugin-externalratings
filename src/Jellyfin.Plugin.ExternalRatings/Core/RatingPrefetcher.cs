@@ -110,7 +110,7 @@ internal sealed class RatingPrefetcher
 
         foreach (var item in items)
         {
-            var selection = InputIdSelector.Select(item.Level, item.ProviderIds);
+            var selection = InputIdSelector.Select(_resolver, item.Level, item.ProviderIds);
             if (selection is null)
             {
                 continue;

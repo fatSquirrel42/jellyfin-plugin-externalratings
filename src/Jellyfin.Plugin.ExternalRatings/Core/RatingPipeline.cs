@@ -89,7 +89,7 @@ internal sealed class RatingPipeline
         var options = _optionsAccessor();
 
         // 1. Choose exactly one input id. Null means "unsupported level" or "no usable id".
-        var selection = InputIdSelector.Select(item.Level, item.ProviderIds);
+        var selection = InputIdSelector.Select(_resolver, item.Level, item.ProviderIds);
         if (selection is null)
         {
             return await HandleUnsupportedAsync(item, options, cancellationToken).ConfigureAwait(false);
@@ -242,7 +242,7 @@ internal sealed class RatingPipeline
         // Note the shipped default is ClearField, not skip -- PluginConfiguration overrides the
         // LeaveExisting default in PipelineOptions. The realtime path must therefore filter
         // unsupported levels before the pipeline, or Episodes reach this row and lose their rating.
-        var levelSupported = InputIdSelector.ProviderPriority(item.Level).Count > 0;
+        var levelSupported = InputIdSelector.ProviderPriority(_resolver, item.Level).Count > 0;
         var baseOutcome = levelSupported ? RatingOutcome.SkippedNoId : RatingOutcome.NotSupported;
 
         if (options.UnsupportedLevelBehavior == UnsupportedLevelBehavior.ClearField)

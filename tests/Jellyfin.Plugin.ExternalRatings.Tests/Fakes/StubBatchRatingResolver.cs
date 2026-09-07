@@ -36,8 +36,8 @@ internal sealed class StubBatchRatingResolver : IBatchRatingResolver
 
     public int MaxBatchSize { get; set; } = 200;
 
-    public IReadOnlyDictionary<ItemLevel, IReadOnlyCollection<string>> SupportedInputProviders { get; set; } =
-        new Dictionary<ItemLevel, IReadOnlyCollection<string>>
+    public IReadOnlyDictionary<ItemLevel, IReadOnlyList<string>> SupportedInputProviders { get; set; } =
+        new Dictionary<ItemLevel, IReadOnlyList<string>>
         {
             [ItemLevel.Movie] = new[] { "Tmdb", "Imdb" },
             [ItemLevel.Series] = new[] { "Tmdb", "Imdb", "Tvdb" }

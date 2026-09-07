@@ -11,6 +11,11 @@ internal sealed class StubRatingResolver : IRatingResolver
 {
     private readonly Func<RatingRequest, CancellationToken, Task<RatingResult>> _resolve;
 
+    public StubRatingResolver()
+        : this(RatingResult.NoMatch())
+    {
+    }
+
     public StubRatingResolver(RatingResult result)
         : this((_, _) => Task.FromResult(result))
     {
@@ -32,8 +37,8 @@ internal sealed class StubRatingResolver : IRatingResolver
 
     public List<RatingRequest> Requests { get; } = new();
 
-    public IReadOnlyDictionary<ItemLevel, IReadOnlyCollection<string>> SupportedInputProviders { get; set; } =
-        new Dictionary<ItemLevel, IReadOnlyCollection<string>>
+    public IReadOnlyDictionary<ItemLevel, IReadOnlyList<string>> SupportedInputProviders { get; set; } =
+        new Dictionary<ItemLevel, IReadOnlyList<string>>
         {
             [ItemLevel.Movie] = new[] { "Tmdb", "Imdb" },
             [ItemLevel.Series] = new[] { "Tmdb", "Imdb", "Tvdb" }
