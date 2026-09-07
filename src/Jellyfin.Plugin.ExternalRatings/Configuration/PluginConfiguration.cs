@@ -45,6 +45,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public string ActiveResolverKey { get; set; } = "mdblist";
 
     /// <summary>
+    /// Gets or sets how many hours a downloaded copy of IMDb's <c>title.ratings</c> dataset stays
+    /// fresh. Only used by the <c>imdb-dataset</c> resolver. IMDb regenerates the file daily, so
+    /// there is nothing to gain below 24; <c>0</c> or less disables refreshing entirely.
+    /// </summary>
+    public int ImdbDatasetRefreshHours { get; set; } = 24;
+
+    /// <summary>
     /// Gets or sets the default external rating source used for libraries without a
     /// <see cref="LibrarySources"/> override (for example <c>myanimelist</c> or <c>imdb</c>). The
     /// default <c>none</c> leaves community ratings untouched unless a library selects its own source.

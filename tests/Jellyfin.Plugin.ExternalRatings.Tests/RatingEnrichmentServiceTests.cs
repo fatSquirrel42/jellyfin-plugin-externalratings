@@ -4,6 +4,7 @@ using FluentAssertions;
 using Jellyfin.Plugin.ExternalRatings;
 using Jellyfin.Plugin.ExternalRatings.Core;
 using Jellyfin.Plugin.ExternalRatings.Resolvers;
+using Jellyfin.Plugin.ExternalRatings.Tests.Fakes;
 using Jellyfin.Data.Enums;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -20,6 +21,44 @@ public class RatingEnrichmentServiceTests
         var resolver = new MdblistResolver(new HttpClient(), string.Empty, NullLogger<MdblistResolver>.Instance);
 
         RatingEnrichmentService.SupportedLevels(resolver).Should().Equal(ItemLevel.Movie, ItemLevel.Series);
+    }
+
+    [Fact]
+    public void SupportedLevels_ImdbDatasetResolver_AddsEpisode()
+    {
+        // The dataset has a rating row per episode, so the resolver declares Episode and the full
+        // pass starts enumerating episodes. Season stays out: IMDb has no season entity.
+        using var dataset = ImdbTestDataset.Create(out var dir);
+        try
+        {
+            var resolver = new ImdbDatasetResolver(dataset);
+
+            RatingEnrichmentService.SupportedLevels(resolver)
+                .Should().Equal(ItemLevel.Movie, ItemLevel.Series, ItemLevel.Episode);
+        }
+        finally
+        {
+            ImdbTestDataset.Cleanup(dir);
+        }
+    }
+
+    [Fact]
+    public void BuildLibraryQuery_IncludesEpisodeKind_WhenTheResolverSupportsIt()
+    {
+        var query = RatingEnrichmentService.BuildLibraryQuery(
+            new[] { ItemLevel.Movie, ItemLevel.Series, ItemLevel.Episode }, Array.Empty<Guid>());
+
+        query.IncludeItemTypes.Should().Contain(BaseItemKind.Episode);
+    }
+
+    [Fact]
+    public void BuildLibraryQuery_ExcludesVirtualItems()
+    {
+        // Missing-episode placeholders are virtual items. Enumerating them would resolve nothing and,
+        // under the shipped ClearField default, clear a field on an item that has no file at all.
+        var query = RatingEnrichmentService.BuildLibraryQuery(new[] { ItemLevel.Episode }, Array.Empty<Guid>());
+
+        query.IsVirtualItem.Should().BeFalse();
     }
 
     [Fact]

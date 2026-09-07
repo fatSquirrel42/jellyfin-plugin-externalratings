@@ -31,6 +31,9 @@ namespace Jellyfin.Plugin.ExternalRatings.Resolvers;
 /// </remarks>
 internal sealed class ImdbDatasetResolver : IRatingResolver
 {
+    /// <summary>The stable configuration key that selects this resolver.</summary>
+    public const string ResolverKey = "imdb-dataset";
+
     /// <summary>The single rating source this resolver can produce.</summary>
     public const string ImdbSource = "imdb";
 
@@ -51,7 +54,7 @@ internal sealed class ImdbDatasetResolver : IRatingResolver
     }
 
     /// <inheritdoc />
-    public string Key => "imdb-dataset";
+    public string Key => ResolverKey;
 
     /// <inheritdoc />
     public string DisplayName => "IMDb (offline dataset)";

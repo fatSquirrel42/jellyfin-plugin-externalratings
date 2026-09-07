@@ -22,6 +22,9 @@ namespace Jellyfin.Plugin.ExternalRatings.Resolvers;
 /// </summary>
 internal sealed class MdblistResolver : IBatchRatingResolver
 {
+    /// <summary>The stable configuration key that selects this resolver.</summary>
+    public const string ResolverKey = "mdblist";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -60,7 +63,7 @@ internal sealed class MdblistResolver : IBatchRatingResolver
     }
 
     /// <inheritdoc />
-    public string Key => "mdblist";
+    public string Key => ResolverKey;
 
     /// <inheritdoc />
     public string DisplayName => "mdblist";
