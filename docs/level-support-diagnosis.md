@@ -32,7 +32,7 @@ Two files from `https://datasets.imdbws.com/`, refreshed daily:
 | file | size (gz) | rows | content |
 | --- | --- | --- | --- |
 | `title.ratings.tsv.gz` | 8.6 MB | 1,711,454 rated titles | `tconst`, `averageRating`, `numVotes` |
-| `title.episode.tsv.gz` | 54.6 MB | 9,871,460 | `tconst`, `parentTconst`, `seasonNumber`, `episodeNumber` |
+| `title.episode.tsv.gz` | 54.6 MB | 9,871,460 | `tconst`, `parentTconst`, `seasonNumber`, `episodeNumber` — **not used, see §9** |
 
 **Cross-validation against mdblist:** Breaking Bad has 62 episode rows in `title.episode`, all 62
 scored in `title.ratings`, mean **8.9371** → 89 on the 0–100 scale. mdblist's gated aggregate
@@ -211,9 +211,9 @@ shows a season rating) or not at all.
 2. **Route A only.** Route B is rejected (§3). Validate route A: the id must differ from the series
    id and must appear as a child row in `title.episode`. An episode with no IMDb id does not
    resolve, and `ClearField` then nulls whatever was there.
-3. **Episodes first.** Wholphin does not render a Season rating at all (§8), so season
-   aggregation is optional scope. If built: aggregate from episode data with a minimum-coverage
-   threshold, since IMDb has no season score to read.
+3. **Episodes and Seasons.** Season scores are aggregated from the Jellyfin season's own episodes
+   (see below), not read from IMDb, which has no season entity. Note this value is invisible in
+   Wholphin (§8) and shows only in jellyfin-web.
 4. **Dropping route B removes most of the plumbing.** With route A the input id is the episode's
    own `tconst`, so `RatingCacheKey(resolver, source, "Imdb", "tt16364366", Episode)` is already
    unique — no season/episode fields, no `CurrentSchemaVersion` bump, and no parent-chain walk in
@@ -222,10 +222,40 @@ shows a season rating) or not at all.
 5. Keep `ClearField` as the default; gate the new levels behind config opt-in for volume, not for
    safety.
 
-### Open question: is `title.episode.tsv.gz` still needed?
+### Decided: `title.episode.tsv.gz` is not used
 
-Route B was its main consumer. What remains is the membership check in point 2 — "is this `tconst`
-really an episode?" — which costs a 54.6 MB daily download against an 8.6 MB one for
-`title.ratings` alone. The narrower risk, an episode carrying its *series'* id, is catchable by
-comparing against the parent series' id with no dataset at all (measured: 0 / 17 in this library).
-Decide before implementing: full membership validation, or ratings-only and a cheap id comparison.
+Only `title.ratings.tsv.gz` (8.6 MB) is downloaded. The 54.6 MB episode map existed for route B,
+and the two things that might still have wanted it do not:
+
+- **Validation.** The realistic failure — an episode carrying its *series'* id — is caught by
+  comparing against the parent series' id, no dataset needed (measured: 0 / 17 here). The broader
+  "is this `tconst` an episode?" test buys little, because the id was curated per episode at
+  TheTVDB rather than guessed. A special whose id points at the *film* (Futurama's movies) resolves
+  to that film's rating, which is the right answer anyway.
+- **Season averaging.** It does not need IMDb's season membership — see below.
+
+### Season averaging without the episode map
+
+IMDb publishes no season row; the value its site shows is computed. But we should **not** try to
+reproduce IMDb's season membership. Use **Jellyfin's own season children**: for each Episode under
+the Season, take its IMDb id (route A), look up `title.ratings`, and average the results
+unweighted, rounded to one decimal (§3).
+
+That is simpler *and* more defensible:
+
+- Where the numbering agrees — nearly always — it equals the value IMDb displays.
+- Where it diverges it deliberately differs, and correctly so. Futurama's TheTVDB season 6 holds
+  26 episodes; IMDb's holds 16. Averaging IMDb's 16 would describe a season the user does not have.
+  Averaging the 26 episodes actually in that Jellyfin season describes theirs.
+- Asking "which IMDb season is this Jellyfin season?" is the same positional guess route B was
+  rejected for, so there is no correct answer to reproduce in the divergent case.
+
+Compute it from the resolver's own lookups, never from `CommunityRating` values already written —
+otherwise the result depends on write order and on `DryRun`.
+
+Coverage threshold: with `IsVirtualItem = false` the unaired-season problem from §3 largely
+disappears, since unaired episodes are virtual items and never enumerated. A minimum-coverage
+threshold is still wanted for partially-present seasons.
+
+Caveat on the display side: per §8 Wholphin renders no Season rating, so this value is write-only
+for the primary client. jellyfin-web does show it.
