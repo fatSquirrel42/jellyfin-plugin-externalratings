@@ -6,10 +6,16 @@ commit. For install/first-run see [README.md](README.md); for design rationale s
 
 ## Overview
 
-Jellyfin **10.11.x** server plugin (`net9.0`) that resolves an external community score — initially
-**MyAnimeList** via the [mdblist](https://mdblist.com) API — and writes it into Jellyfin's native
-`CommunityRating`. Plugin GUID `54015a93-7e43-4406-adcf-a15cc251dff1`. Single source project
-(`src/Jellyfin.Plugin.ExternalRatings`) + test project (`tests/…Tests`), both `net9.0`.
+Jellyfin **10.11.x** server plugin (`net9.0`) that resolves an external community score and writes it
+into Jellyfin's native `CommunityRating`. Plugin GUID `54015a93-7e43-4406-adcf-a15cc251dff1`. Single
+source project (`src/Jellyfin.Plugin.ExternalRatings`) + test project (`tests/…Tests`), both `net9.0`.
+
+**Two resolvers**, selected by `PluginConfiguration.ActiveResolverKey`:
+`mdblist` (HTTP, keyed, budgeted, batched; Movie+Series, nine sources) and `imdb-dataset` (a local
+copy of IMDb's `title.ratings.tsv.gz`; Movie/Series/Season/Episode, IMDb only, no key or quota).
+Only the latter reaches episodes — mdblist's per-episode data is Supporter-gated. The full evidence
+and every design decision is in [`docs/level-support-diagnosis.md`](docs/level-support-diagnosis.md);
+read it before touching level or matching logic.
 
 ## Build & test commands
 
@@ -72,7 +78,7 @@ The strict ruleset makes several non-obvious things mandatory:
 | `Plugin.cs`, `PluginServiceRegistrator.cs`, `RatingEnrichmentService.cs` (root) | Entry point; DI wiring; **the public facade / composition root** (owns the shared `CircuitBreaker`, caches, `HttpClient`). |
 | `Configuration/` | `PluginConfiguration` (arrays!), `ResolverSetting`, `LibrarySourceSetting`, embedded `configPage.html`. |
 | `Core/` (+ `Core/Abstractions/`) | Host-independent domain: `RatingPipeline` (the §6 decision table), `EnrichmentRunner`, `RatingPrefetcher`, `PluginConfigurationMapper`, `InputIdSelector`, `CircuitBreaker`, `ItemLevel`, `IClock`; seam interfaces (`IItemWriter`, `IRatingCache`, `IBackupStore`). |
-| `Resolvers/` (+ `Mdblist/`) | `IRatingResolver`/`IBatchRatingResolver`, `MdblistResolver`, `RatingSourceInfo` + wire DTOs. |
+| `Resolvers/` (+ `Mdblist/`, `Imdb/`) | `IRatingResolver`/`IBatchRatingResolver`, `MdblistResolver`, `ImdbDatasetResolver`, `RatingSourceInfo` + wire DTOs. `Imdb/ImdbRatingsIndex` is the pure TSV parse + binary-search lookup; `Imdb/ImdbRatingsDataset` owns the download, disk cache and refresh. |
 | `Persistence/` | `FileRatingCache`, `BackupStore`, `DailyRequestCounter`, `ICacheFileStore`. |
 | `Infrastructure/` | `JellyfinItemWriter` (implements `IItemWriter`), `BudgetTrackingHandler`. |
 | `Api/` | `StatusController` (`[Authorize(RequiresElevation)]`) + DTOs. |
@@ -80,11 +86,22 @@ The strict ruleset makes several non-obvious things mandatory:
 
 ## Key patterns
 
-- **Resolver capability drives the UI.** `IRatingResolver.SupportedInputProviders` (presence of a
-  level key = "this level is supported") and `SupportedRatingSources` flow through
-  `RatingEnrichmentService.GetSupportedLevels/GetSupportedSources` → `StatusController` →
-  `configPage.html`, which builds the level/source dropdowns from the endpoint instead of hardcoding
-  them. Add a source/level by extending the resolver, not the UI.
+- **Resolver capability drives the UI.** `SupportedInputProviders` (presence of a level key = "this
+  level is supported", list order = input-id priority) and `SupportedRatingSources` flow through
+  `RatingEnrichmentService.GetResolverCapabilities` → `StatusController` → `configPage.html`, which
+  builds the provider/level/source controls from the endpoint. Add a source, level or resolver by
+  extending the resolver side, not the UI.
+- **Processed levels = capability ∩ opt-in.** `RatingEnrichmentService.ProcessedLevels(resolver,
+  config)` is the single answer, and **both** the full pass and the realtime path must call it —
+  lesson 8 in `docs/lessons-learned.md` is the regression from those two disagreeing. Season and
+  Episode are off by default (`EnabledLevels`); it is a volume control, not a safety one.
+- **Episode matching is by the item's own IMDb id only.** Never by (series, season, episode)
+  position — TheTVDB and IMDb numbering diverge (Futurama from S6 on) and positional matching writes
+  the wrong episode's score with no error. `InheritedProviderIdFilter` drops an id an episode only
+  carries because it came from its series.
+- **A season has no IMDb entry.** Its score is aggregated by `SeasonRatingAggregator` from the
+  episodes the library holds (unweighted mean, away-from-zero, minimum-coverage gate), fed through
+  `RatingWorkItem.MemberInputIds` because only the host knows the members.
 - **Humble Object:** tasks, controllers, and the item writer are thin shells over testable core
   logic behind `Core/Abstractions`. Fakes live in `tests/…/Fakes/`.
 - **Live config reads via `Func<>` accessors + `IClock`/`SystemClock`** (no captured snapshots), so

@@ -1,5 +1,10 @@
 # Season/Episode support — phase 0 diagnosis
 
+> **Status: implemented.** Every decision below is in the code. `ImdbDatasetResolver` covers
+> Movie/Series/Episode by IMDb id and aggregates Season from its episodes; levels are opt-in via
+> `PluginConfiguration.EnabledLevels`; the provider is chosen with `ActiveResolverKey`. This
+> document is kept as the evidence for *why*, not as a plan.
+
 Measured 2026-09-07 against the local test instance (Jellyfin 10.11.11) and the IMDb
 non-commercial datasets. Reproduce with `scripts/diagnose-levels.ps1`.
 

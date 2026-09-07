@@ -1,14 +1,29 @@
 <h1 align="center">Jellyfin External Ratings Plugin</h1>
 
-A Jellyfin server plugin that resolves the community score of an external source — initially
-**MyAnimeList**, via the [mdblist](https://mdblist.com) API — and writes it into Jellyfin's standard
-`CommunityRating` field. Targets **Jellyfin 10.11.x** (`net9.0`). (Jellyfin 12.0 needs a separate
-net10.0 build — see [docs/jellyfin-12-compat.md](docs/jellyfin-12-compat.md).)
+A Jellyfin server plugin that resolves an external community score and writes it into Jellyfin's
+standard `CommunityRating` field. Targets **Jellyfin 10.11.x** (`net9.0`). (Jellyfin 12.0 needs a
+separate net10.0 build — see [docs/jellyfin-12-compat.md](docs/jellyfin-12-compat.md).)
+
+Two providers, picked on the config page:
+
+| Provider | Levels | Sources | Needs |
+| --- | --- | --- | --- |
+| **mdblist** | Movies, Series | IMDb, MyAnimeList, Metacritic, Trakt, TMDb, Rotten Tomatoes, Letterboxd | An API key; 1000 requests/day on the free tier |
+| **IMDb (offline dataset)** | Movies, Series, Seasons, Episodes | IMDb | Nothing — it downloads IMDb's own ~9 MB ratings file once a day |
+
+Only the dataset provider reaches **episodes**. mdblist's per-episode data became a paid perk and is
+unavailable on the batch endpoint either way — the evidence is in
+[docs/level-support-diagnosis.md](docs/level-support-diagnosis.md).
 
 ## What it does
 
-- Looks up each configured item (Movies/Series) by its Tmdb/Imdb/Tvdb id through mdblist and reads
-  the native MyAnimeList `value` (0–10 scale).
+- Looks up each configured item by its provider id and writes the chosen source's score, converted
+  to Jellyfin's 0–10 scale.
+- **Episodes** match on the episode's own IMDb id — the one TheTVDB's own cross-reference supplies,
+  even in a TVDB-only setup. Never by (series, season, episode) position: TheTVDB and IMDb disagree
+  on numbering often enough that positional matching writes the wrong episode's score silently.
+- **Seasons** have no IMDb entry at all, so their score is the unweighted mean of the episodes the
+  library holds — the same figure IMDb's own site shows.
 - Writes the score into `CommunityRating` using `ItemUpdateType.MetadataEdit`, so a per-library NFO
   saver (if enabled) rewrites the `<rating>` and the DB and NFO stay consistent.
 - Caches results (positive + negative), batches lookups, and stays within a daily request budget,
@@ -53,9 +68,12 @@ local dev/test.)
 
 After restart, open **Dashboard → Plugins → External Ratings** and set:
 
-1. **mdblist API key** (free tier = 1000 requests/day).
-2. At least one **enabled library**.
-3. Keep/adjust **processed levels** (defaults: Movie, Series).
+1. A **rating provider**. mdblist needs an API key (free tier = 1000 requests/day); the IMDb
+   dataset needs nothing.
+2. A **rating source**, and at least one **enabled library**.
+3. The **item levels** to process. Movies and Series are on by default; Seasons and Episodes are
+   off, and only the IMDb dataset provider offers them. Enabling episodes can multiply the number
+   of processed items by a hundred in a TV library, so turn them on deliberately.
 4. **Dry run is ON by default** — nothing is written until you turn it off. Leave it on for a first,
    read-only pass; turn it off to actually write `CommunityRating`.
 
