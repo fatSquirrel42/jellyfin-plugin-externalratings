@@ -139,7 +139,7 @@ internal sealed class RatingPipeline
         RatingResult result;
         try
         {
-            var request = new RatingRequest(item.Level, chosen.Provider, chosen.Id, item.TargetSource);
+            var request = new RatingRequest(item.Level, chosen.Provider, chosen.Id, item.TargetSource, item.MemberInputIds);
             result = await _resolver.ResolveAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)

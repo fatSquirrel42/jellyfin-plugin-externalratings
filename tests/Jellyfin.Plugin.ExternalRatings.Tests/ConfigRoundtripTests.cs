@@ -49,6 +49,7 @@ public class ConfigRoundtripTests
         config.ResolverSettings.Should().BeEmpty();
         config.EnabledLevels.Should().Equal("Movie", "Series");
         config.ImdbDatasetRefreshHours.Should().Be(24);
+        config.SeasonMinimumCoveragePercent.Should().Be(50);
     }
 
     [Fact]

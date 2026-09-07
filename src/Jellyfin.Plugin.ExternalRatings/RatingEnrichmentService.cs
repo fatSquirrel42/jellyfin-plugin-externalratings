@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -35,6 +36,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     private const string ApiKeySettingKey = "mdblist.apiKey";
     private const int DefaultDailyLimit = 1000;
     private const int DefaultDatasetRefreshHours = 24;
+    private const int DefaultSeasonCoveragePercent = 50;
 
     // How long a plugin write suppresses the change event it raises (self-write guard, §15 step 9).
     private static readonly TimeSpan SelfWriteWindow = TimeSpan.FromSeconds(30);
@@ -583,7 +585,9 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     {
         if (string.Equals(resolverKey, ImdbDatasetResolver.ResolverKey, StringComparison.OrdinalIgnoreCase))
         {
-            return new ImdbDatasetResolver(_imdbDataset);
+            return new ImdbDatasetResolver(
+                _imdbDataset,
+                () => Plugin.Instance?.Configuration.SeasonMinimumCoveragePercent ?? DefaultSeasonCoveragePercent);
         }
 
         if (!string.IsNullOrWhiteSpace(resolverKey)
@@ -717,6 +721,11 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         var hasOverrides = config.LibrarySources.Length > 0;
         var defaultSource = PluginConfigurationMapper.ResolveSource(config, Array.Empty<Guid>());
 
+        var levels = ProcessedLevels(resolver, config);
+        var seasonMembers = levels.Contains(ItemLevel.Season)
+            ? CollectSeasonMembers(config.EnabledLibraries)
+            : null;
+
         var items = new List<RatingWorkItem>();
         var liveIds = new HashSet<Guid>();
         foreach (var baseItem in _libraryManager.GetItemList(query))
@@ -748,11 +757,23 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 continue;
             }
 
+            var providerIds = ExtractProviderIds(baseItem);
+            IReadOnlyList<string>? memberIds = null;
+
+            if (level == ItemLevel.Season)
+            {
+                memberIds = seasonMembers is not null && seasonMembers.TryGetValue(baseItem.Id, out var members)
+                    ? members
+                    : Array.Empty<string>();
+                providerIds = BuildSeasonProviderIds(baseItem, memberIds.Count);
+            }
+
             items.Add(new RatingWorkItem(
                 new RatingItemRef(baseItem.Id, baseItem.Name),
                 level.Value,
-                ExtractProviderIds(baseItem),
-                source));
+                providerIds,
+                source,
+                memberIds));
         }
 
         return (items, liveIds);
@@ -775,6 +796,76 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             {
                 ids = InheritedProviderIdFilter.Strip(ids, ReadProviderIds(series));
             }
+        }
+
+        return ids;
+    }
+
+    /// <summary>
+    /// Groups every non-virtual episode in the enabled libraries under its season, as the input ids
+    /// a season aggregate is computed from. One query for the whole pass rather than one per season.
+    /// </summary>
+    /// <param name="enabledLibraries">The enabled CollectionFolder ids.</param>
+    /// <returns>Season id to its episodes' input ids.</returns>
+    private Dictionary<Guid, IReadOnlyList<string>> CollectSeasonMembers(Guid[] enabledLibraries)
+    {
+        var query = new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Episode },
+            AncestorIds = enabledLibraries,
+            Recursive = true,
+            IsVirtualItem = false
+        };
+
+        var members = new Dictionary<Guid, IReadOnlyList<string>>();
+        foreach (var baseItem in _libraryManager.GetItemList(query))
+        {
+            if (baseItem is not Episode episode || episode.SeasonId == Guid.Empty)
+            {
+                continue;
+            }
+
+            // Same ids the episode itself would resolve by, inherited-id filter included: a season
+            // must never be averaged from ids that are really its series'.
+            var ids = ExtractProviderIds(baseItem);
+            if (!ids.TryGetValue("Imdb", out var imdbId) || string.IsNullOrWhiteSpace(imdbId))
+            {
+                continue;
+            }
+
+            if (!members.TryGetValue(episode.SeasonId, out var list))
+            {
+                list = new List<string>();
+                members[episode.SeasonId] = list;
+            }
+
+            ((List<string>)list).Add(imdbId);
+        }
+
+        return members;
+    }
+
+    /// <summary>
+    /// Synthesises the input id a season is cached under. IMDb has no season entity, so there is no
+    /// real id: the series' tconst plus the season number identifies it, and the episode count makes
+    /// the key change when the season gains or loses an episode, which is what invalidates a stale
+    /// average before its TTL expires.
+    /// </summary>
+    /// <param name="item">The season item.</param>
+    /// <param name="memberCount">How many episodes contributed.</param>
+    /// <returns>The synthetic provider ids for the season.</returns>
+    private static Dictionary<string, string> BuildSeasonProviderIds(BaseItem item, int memberCount)
+    {
+        var ids = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var series = (item as Season)?.Series;
+        if (series is not null
+            && ReadProviderIds(series).TryGetValue("Imdb", out var seriesId)
+            && !string.IsNullOrWhiteSpace(seriesId))
+        {
+            ids["Imdb"] = string.Create(
+                CultureInfo.InvariantCulture,
+                $"{seriesId}/S{item.IndexNumber ?? 0}#{memberCount}");
         }
 
         return ids;

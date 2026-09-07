@@ -20,8 +20,9 @@ namespace Jellyfin.Plugin.ExternalRatings.Resolvers;
 /// (see <c>docs/level-support-diagnosis.md</c> §3).
 /// </para>
 /// <para>
-/// Season is absent here on purpose: IMDb has no season entity, so a season score is an aggregate
-/// over the season's episodes and is produced outside this per-item seam.
+/// Season is the one level that is not a direct lookup: IMDb has no season entity, so the score is
+/// the mean of the season's episodes, taken from <see cref="RatingRequest.MemberInputIds"/> because
+/// only the host knows which episodes those are.
 /// </para>
 /// <para>
 /// Deliberately not an <see cref="IBatchRatingResolver"/>. Batching exists to amortise HTTP calls;
@@ -45,12 +46,18 @@ internal sealed class ImdbDatasetResolver : IRatingResolver
     private static readonly string[] ImdbOnly = { "Imdb" };
 
     private readonly ImdbRatingsDataset _dataset;
+    private readonly Func<int> _seasonMinimumCoveragePercent;
 
     /// <summary>Initializes a new instance of the <see cref="ImdbDatasetResolver"/> class.</summary>
     /// <param name="dataset">The locally cached dataset.</param>
-    public ImdbDatasetResolver(ImdbRatingsDataset dataset)
+    /// <param name="seasonMinimumCoveragePercent">
+    /// Accessor for the share of a season's episodes that must resolve before its average is used.
+    /// Read per request so a config change applies without a restart.
+    /// </param>
+    public ImdbDatasetResolver(ImdbRatingsDataset dataset, Func<int>? seasonMinimumCoveragePercent = null)
     {
         _dataset = dataset;
+        _seasonMinimumCoveragePercent = seasonMinimumCoveragePercent ?? (static () => 50);
     }
 
     /// <inheritdoc />
@@ -65,6 +72,7 @@ internal sealed class ImdbDatasetResolver : IRatingResolver
         {
             [ItemLevel.Movie] = ImdbOnly,
             [ItemLevel.Series] = ImdbOnly,
+            [ItemLevel.Season] = ImdbOnly,
             [ItemLevel.Episode] = ImdbOnly
         };
 
@@ -101,8 +109,37 @@ internal sealed class ImdbDatasetResolver : IRatingResolver
             return RatingResult.ForError("the IMDb dataset is not available");
         }
 
-        return index.TryGetRating(request.InputId, out var rating)
-            ? RatingResult.ForScore(rating)
-            : RatingResult.NoMatch();
+        return request.Level == ItemLevel.Season
+            ? ResolveSeason(request, index)
+            : index.TryGetRating(request.InputId, out var rating)
+                ? RatingResult.ForScore(rating)
+                : RatingResult.NoMatch();
+    }
+
+    /// <summary>
+    /// A season has no id of its own to look up, so its score is the mean of its episodes'.
+    /// </summary>
+    /// <param name="request">The request, whose <see cref="RatingRequest.MemberInputIds"/> holds the episodes.</param>
+    /// <param name="index">The ratings index.</param>
+    /// <returns>The aggregated result.</returns>
+    private RatingResult ResolveSeason(RatingRequest request, ImdbRatingsIndex index)
+    {
+        var members = request.MemberInputIds;
+        if (members is null || members.Count == 0)
+        {
+            return RatingResult.NoMatch();
+        }
+
+        var found = new List<float>(members.Count);
+        foreach (var memberId in members)
+        {
+            if (index.TryGetRating(memberId, out var rating))
+            {
+                found.Add(rating);
+            }
+        }
+
+        var average = SeasonRatingAggregator.Average(found, members.Count, _seasonMinimumCoveragePercent());
+        return average is float score ? RatingResult.ForScore(score) : RatingResult.NoMatch();
     }
 }

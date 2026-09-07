@@ -60,6 +60,13 @@ public class PluginConfiguration : BasePluginConfiguration
 #pragma warning restore CA1819
 
     /// <summary>
+    /// Gets or sets the share of a season's episodes (0-100) that must resolve before a season
+    /// average is written. Guards against a season where one or two stray episodes resolved: their
+    /// mean describes them, not the season. <c>0</c> accepts any single episode.
+    /// </summary>
+    public int SeasonMinimumCoveragePercent { get; set; } = 50;
+
+    /// <summary>
     /// Gets or sets how many hours a downloaded copy of IMDb's <c>title.ratings</c> dataset stays
     /// fresh. Only used by the <c>imdb-dataset</c> resolver. IMDb regenerates the file daily, so
     /// there is nothing to gain below 24; <c>0</c> or less disables refreshing entirely.

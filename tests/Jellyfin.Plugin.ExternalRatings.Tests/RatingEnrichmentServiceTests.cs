@@ -24,17 +24,17 @@ public class RatingEnrichmentServiceTests
     }
 
     [Fact]
-    public void SupportedLevels_ImdbDatasetResolver_AddsEpisode()
+    public void SupportedLevels_ImdbDatasetResolver_CoversAllFour()
     {
-        // The dataset has a rating row per episode, so the resolver declares Episode and the full
-        // pass starts enumerating episodes. Season stays out: IMDb has no season entity.
+        // The dataset has a rating row per episode, so Episode is a direct lookup; Season has no
+        // row of its own and is aggregated from those episodes.
         using var dataset = ImdbTestDataset.Create(out var dir);
         try
         {
             var resolver = new ImdbDatasetResolver(dataset);
 
             RatingEnrichmentService.SupportedLevels(resolver)
-                .Should().Equal(ItemLevel.Movie, ItemLevel.Series, ItemLevel.Episode);
+                .Should().Equal(ItemLevel.Movie, ItemLevel.Series, ItemLevel.Season, ItemLevel.Episode);
         }
         finally
         {
