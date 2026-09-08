@@ -28,18 +28,12 @@ public class RatingEnrichmentServiceTests
     {
         // The dataset has a rating row per episode, so Episode is a direct lookup; Season has no
         // row of its own and is aggregated from those episodes.
-        using var dataset = ImdbTestDataset.Create(out var dir);
-        try
-        {
-            var resolver = new ImdbDatasetResolver(dataset);
+        using var datasets = ImdbTestDatasets.Create();
+        var resolver = new ImdbDatasetResolver(
+            datasets.Ratings, datasets.Episodes, NullLogger.Instance);
 
-            RatingEnrichmentService.SupportedLevels(resolver)
-                .Should().Equal(ItemLevel.Movie, ItemLevel.Series, ItemLevel.Season, ItemLevel.Episode);
-        }
-        finally
-        {
-            ImdbTestDataset.Cleanup(dir);
-        }
+        RatingEnrichmentService.SupportedLevels(resolver)
+            .Should().Equal(ItemLevel.Movie, ItemLevel.Series, ItemLevel.Season, ItemLevel.Episode);
     }
 
     [Fact]

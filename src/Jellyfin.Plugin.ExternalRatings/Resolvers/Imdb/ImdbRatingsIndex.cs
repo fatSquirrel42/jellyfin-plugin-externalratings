@@ -113,12 +113,18 @@ internal sealed class ImdbRatingsIndex
         rating = 0f;
 
         var id = ParseTconst(imdbId);
-        if (id is null)
-        {
-            return false;
-        }
+        return id is not null && TryGetRating(id.Value, out rating);
+    }
 
-        var index = Array.BinarySearch(_ids, id.Value);
+    /// <summary>Looks up the average rating for an already-parsed numeric tconst.</summary>
+    /// <param name="id">The numeric id, as <see cref="ImdbEpisodeMap"/> hands them out.</param>
+    /// <param name="rating">The average rating on IMDb's 0–10 scale, or <c>0</c> when not found.</param>
+    /// <returns><see langword="true"/> when the id is present.</returns>
+    public bool TryGetRating(long id, out float rating)
+    {
+        rating = 0f;
+
+        var index = Array.BinarySearch(_ids, id);
         if (index < 0)
         {
             return false;

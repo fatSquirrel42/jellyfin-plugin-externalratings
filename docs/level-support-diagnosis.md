@@ -1,8 +1,11 @@
 # Season/Episode support — phase 0 diagnosis
 
 > **Status: implemented.** Every decision below is in the code. `ImdbDatasetResolver` covers
-> Movie/Series/Episode by IMDb id and aggregates Season from its episodes; levels are opt-in via
-> `PluginConfiguration.EnabledLevels`. The provider is **not** configurable — `Core/RatingRouter`
+> Movie/Series/Episode by IMDb id, and scores a Season as the mean over *IMDb's* episodes for it
+> — identified from the local episodes' ids, never from the season number; levels are opt-in via
+> `PluginConfiguration.EnabledLevels`. Two passages were **revised on 2026-09-08** after the
+> requirement changed from "the season you have" to "the season": §2's table marker and the two
+> §9 sections on the episode map. The revisions say so where they stand. The provider is **not** configurable — `Core/RatingRouter`
 > picks it per item from (source × level × available ids), so §5's "which id do I have" question
 > is answered at runtime rather than by the user. This document is kept as the evidence for *why*,
 > not as a plan.
@@ -39,7 +42,7 @@ Two files from `https://datasets.imdbws.com/`, refreshed daily:
 | file | size (gz) | rows | content |
 | --- | --- | --- | --- |
 | `title.ratings.tsv.gz` | 8.6 MB | 1,711,454 rated titles | `tconst`, `averageRating`, `numVotes` |
-| `title.episode.tsv.gz` | 54.6 MB | 9,871,460 | `tconst`, `parentTconst`, `seasonNumber`, `episodeNumber` — **not used, see §9** |
+| `title.episode.tsv.gz` | 54.6 MB | 9,871,460 | `tconst`, `parentTconst`, `seasonNumber`, `episodeNumber` — **used for season scores only, see §9** |
 
 **Cross-validation against mdblist:** Breaking Bad has 62 episode rows in `title.episode`, all 62
 scored in `title.ratings`, mean **8.9371** → 89 on the 0–100 scale. mdblist's gated aggregate
@@ -105,15 +108,19 @@ mechanism check, not a statistic.
   0 %, all announced-but-not-aired.
 - **96.1 %** of seasons (268 / 279) have 100 % episode coverage; 3.2 % are the unaired ones.
 
-That is what makes the season rule **all-or-nothing** affordable: a season score is written only
-if every episode the library holds resolved. 96 % of seasons already clear that bar, and the
-exceptions are unaired episodes, which exist only as virtual items and are never enumerated.
+This is what makes averaging over IMDb's season list sound: for a finished season the list is
+effectively fully rated, so the mean over it is the mean over the whole season. The 1 % that is
+unrated is announced-but-unaired, which is the airing-season question — **parked deliberately**,
+not answered here.
 
-> A configurable minimum-coverage threshold was tried first and removed on 2026-09-08. It could
-> not do its job: `CollectSeasonMembers` dropped episodes without an IMDb id *before* counting,
-> so the denominator was "episodes already matched". A season with 2 of 12 matched reported
-> 100 % coverage and got a two-episode average — exactly the case the threshold was documented
-> to prevent.
+> Two coverage gates were tried and both removed on 2026-09-08. First a configurable minimum-
+> coverage threshold, which could not do its job: `CollectSeasonMembers` dropped episodes without
+> an IMDb id *before* counting, so the denominator was "episodes already matched" — a season with
+> 2 of 12 matched reported 100 % coverage and got a two-episode average, exactly the case the
+> threshold was documented to prevent. It was replaced by an all-or-nothing rule over the
+> episodes on disk, which went the same way a day later once the season became IMDb's season:
+> with that denominator the rule would fire on every season IMDb knows more episodes of than the
+> user has. There is no gate now.
 
 **IMDb's own season average is the unweighted mean**, and it is reproducible from the dataset.
 IMDb displays "8.6 Average from 43K episode ratings" for `tt7078180` season 1; computed from
@@ -225,9 +232,10 @@ shows a season rating) or not at all.
 2. **Route A only.** Route B is rejected (§3). Validate route A: the id must differ from the series
    id and must appear as a child row in `title.episode`. An episode with no IMDb id does not
    resolve, and `ClearField` then nulls whatever was there.
-3. **Episodes and Seasons.** Season scores are aggregated from the Jellyfin season's own episodes
-   (see below), not read from IMDb, which has no season entity. Note this value is invisible in
-   Wholphin (§8) and shows only in jellyfin-web.
+3. **Episodes and Seasons.** IMDb has no season entity, so a season score is aggregated — but over
+   *IMDb's* season, not the episodes on disk (see below). Note this value is invisible in
+   Wholphin (§8) and shows only in jellyfin-web; it is filled anyway because IMDb's own page
+   shows it.
 4. **Dropping route B removes most of the plumbing.** With route A the input id is the episode's
    own `tconst`, so `RatingCacheKey(resolver, source, "Imdb", "tt16364366", Episode)` is already
    unique — no season/episode fields, no `CurrentSchemaVersion` bump, and no parent-chain walk in
@@ -236,42 +244,78 @@ shows a season rating) or not at all.
 5. Keep `ClearField` as the default; gate the new levels behind config opt-in for volume, not for
    safety.
 
-### Decided: `title.episode.tsv.gz` is not used
+### Revised: `title.episode.tsv.gz` is used, for seasons only
 
-Only `title.ratings.tsv.gz` (8.6 MB) is downloaded. The 54.6 MB episode map existed for route B,
-and the two things that might still have wanted it do not:
+This section first concluded the file was unnecessary. That was wrong, and the reason is recorded
+here rather than deleted, because the two arguments are worth keeping apart:
 
-- **Validation.** The realistic failure — an episode carrying its *series'* id — is caught by
-  comparing against the parent series' id, no dataset needed (measured: 0 / 17 here). The broader
-  "is this `tconst` an episode?" test buys little, because the id was curated per episode at
-  TheTVDB rather than guessed. A special whose id points at the *film* (Futurama's movies) resolves
-  to that film's rating, which is the right answer anyway.
-- **Season averaging.** It does not need IMDb's season membership — see below.
+- **Validation — still does not need the file.** The realistic failure — an episode carrying its
+  *series'* id — is caught by comparing against the parent series' id, no dataset needed
+  (measured: 0 / 17 here). The broader "is this `tconst` an episode?" test buys little, because
+  the id was curated per episode at TheTVDB rather than guessed. A special whose id points at the
+  *film* (Futurama's movies) resolves to that film's rating, which is the right answer anyway.
+- **Season averaging — does need it.** The requirement changed: the season is the season, with all
+  of its episodes, independent of what is on disk. Nothing local can supply that episode list.
+  Jellyfin knows nothing about the missing ones in this setup — the missing-episode fetcher is off
+  and `DisplayMissingEpisodes` is unset, so there are no virtual placeholders to count. The list
+  can therefore only come from IMDb.
 
-### Season averaging without the episode map
+So `title.episode.tsv.gz` is downloaded, and the refresh interval governs 63 MB rather than 8.6.
+Route B stays rejected — having the file does not make positional matching safe (§3).
 
-IMDb publishes no season row; the value its site shows is computed. But we should **not** try to
-reproduce IMDb's season membership. Use **Jellyfin's own season children**: for each Episode under
-the Season, take its IMDb id (route A), look up `title.ratings`, and average the results
-unweighted, rounded to one decimal (§3).
+### Season averaging: identify by episode identity, average over IMDb's season
 
-That is simpler *and* more defensible:
+IMDb publishes no season row; the value its site shows is computed, and it is the plain unweighted
+mean of the episode averages (§3, verified against `tt7078180` S1 = 8.6000 exactly — the
+vote-weighted mean would be 8.8560). That is the figure to reproduce.
 
-- Where the numbering agrees — nearly always — it equals the value IMDb displays.
-- Where it diverges it deliberately differs, and correctly so. Futurama's TheTVDB season 6 holds
-  26 episodes; IMDb's holds 16. Averaging IMDb's 16 would describe a season the user does not have.
-  Averaging the 26 episodes actually in that Jellyfin season describes theirs.
-- Asking "which IMDb season is this Jellyfin season?" is the same positional guess route B was
-  rejected for, so there is no correct answer to reproduce in the divergent case.
+The hard part is knowing *which* IMDb season a Jellyfin season is, **without** translating the
+season number — that would be exactly the positional guess route B was rejected for. The rule:
 
-Compute it from the resolver's own lookups, never from `CommunityRating` values already written —
-otherwise the result depends on write order and on `DryRun`.
+```
+members = the IMDb ids of this Jellyfin season's episodes (only the ones that have one)
+seasons = { episodeMap.SeasonOf(id) | id ∈ members }        → (parentTconst, seasonNumber)
 
-Completeness: with `IsVirtualItem = false` the unaired-season problem from §3 disappears, since
-unaired episodes are virtual items and never enumerated. What remains is the *unmatched* episode
-— one with a file but no IMDb id — and that is what the all-or-nothing rule catches. The member
-list therefore carries one entry per episode, blank where there is no id, so the count stays the
-season's true total instead of shrinking to the matched ones.
+seasons.Count != 1  → NoMatch, logged differently for each cause:
+                       0 = no member resolvable, >1 = this season has no single IMDb counterpart
+otherwise:
+   children = episodeMap.EpisodesOf(parent, season)         ← IMDb's complete season
+   values   = the children that have a `title.ratings` row
+   result   = unweighted mean, one decimal, away from zero
+```
+
+The identity comes from the episodes themselves, never from their position. And it self-checks: on
+Futurama-style divergence the members land in several IMDb seasons and that is *detected* rather
+than guessed at — the per-series structural check §3 already suggested.
+
+Two consequences that follow and are intended:
+
+- **A partially downloaded season still gets IMDb's figure.** With one episode of eight on disk
+  the score is the eight-episode mean, because the season is the season. This is the point of the
+  design, and it reverses an earlier decision in this document to average only what the library
+  holds.
+- **Specials can never identify themselves.** IMDb has zero season-0 rows across all 9.87 M (§4),
+  so a specials season resolves to nothing and is cleared under `ClearField`.
+
+There is no completeness gate any more. It existed only because the denominator used to be "what is
+on disk"; with IMDb's season as the denominator it would fire on every season IMDb knows more
+episodes of than the user has. Unrated episodes simply do not appear in the mean — which is what
+IMDb's own figure does too. **Airing seasons are deliberately out of scope here** and parked for
+later.
+
+Two implementation notes:
+
+- Compute it from the resolver's own lookups, never from `CommunityRating` values already written —
+  otherwise the result depends on write order and on `DryRun`.
+- **An unavailable episode map is an `Error`, never a `NoMatch`** — sibling of the existing empty-
+  index check. Without that, one failed 54.6 MB download would clear every season score in the
+  library under `ClearField`.
+
+Verified against the real data before building: Diabolical S1 — all 8 episodes on
+`(tt16350094, S1)`, IMDb lists exactly 8, all rated, mean 6.7250 → **6.7**. Visions S3 — all 9 on
+`(tt13622982, S3)`, IMDb lists 9, all rated → **6.6**. Both are complete locally, so they are a
+clean regression probe: the values must not move.
 
 Caveat on the display side: per §8 Wholphin renders no Season rating, so this value is write-only
-for the primary client. jellyfin-web does show it.
+for the primary client. It is filled anyway, because IMDb's own page shows it; jellyfin-web does
+display it.

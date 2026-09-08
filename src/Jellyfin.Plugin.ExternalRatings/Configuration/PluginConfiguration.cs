@@ -62,10 +62,11 @@ public class PluginConfiguration : BasePluginConfiguration
 #pragma warning restore CA1819
 
     /// <summary>
-    /// Gets or sets how often the local copy of IMDb's <c>title.ratings</c> dataset is
-    /// re-downloaded: <c>Daily</c>, <c>Weekly</c>, <c>Monthly</c> or <c>Never</c>. IMDb
-    /// regenerates the file once a day, so nothing below daily would help. <c>Never</c> keeps the
-    /// copy that is there and still fetches one when none exists.
+    /// Gets or sets how often the local copies of IMDb's datasets are re-downloaded:
+    /// <c>Daily</c>, <c>Weekly</c>, <c>Monthly</c> or <c>Never</c>. It governs both files —
+    /// <c>title.ratings</c> (~8.6 MB) and <c>title.episode</c> (~54.6 MB, needed for season
+    /// scores). IMDb regenerates them once a day, so nothing below daily would help.
+    /// <c>Never</c> keeps the copies that are there and still fetches one when none exists.
     /// </summary>
     public string ImdbDatasetRefresh { get; set; } = "Daily";
 

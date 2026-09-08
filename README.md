@@ -8,7 +8,7 @@ You pick a **rating source**; the plugin works out how to reach it. There is no 
 
 | Source | Levels | Needs |
 | --- | --- | --- |
-| **IMDb** | Movies, Series, Seasons, Episodes | Nothing — a local copy of IMDb's own ~9 MB ratings file, refreshed daily |
+| **IMDb** | Movies, Series, Seasons, Episodes | Nothing — local copies of IMDb's own dataset files (~9 MB of ratings, plus ~55 MB of episode listings for season scores), refreshed daily |
 | MyAnimeList, Metacritic, Trakt, TMDb, Rotten Tomatoes, Letterboxd | Movies, Series | An mdblist API key; 1000 requests/day on the free tier |
 
 Only IMDb reaches **seasons and episodes**. mdblist's per-episode data became a paid perk and is

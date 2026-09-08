@@ -11,8 +11,8 @@ into Jellyfin's native `CommunityRating`. Plugin GUID `54015a93-7e43-4406-adcf-a
 source project (`src/Jellyfin.Plugin.ExternalRatings`) + test project (`tests/…Tests`), both `net9.0`.
 
 **Two resolvers, chosen automatically.** `mdblist` (HTTP, keyed, budgeted, batched; Movie+Series,
-nine sources) and `imdb-dataset` (a local copy of IMDb's `title.ratings.tsv.gz`;
-Movie/Series/Season/Episode, IMDb only, no key or quota). Only the latter reaches episodes —
+nine sources) and `imdb-dataset` (local copies of IMDb's `title.ratings.tsv.gz` and, for season
+scores, `title.episode.tsv.gz`; Movie/Series/Season/Episode, IMDb only, no key or quota). Only the latter reaches episodes —
 mdblist's per-episode data is Supporter-gated. **The user configures only a rating *source*; there
 is no provider setting** (`ActiveResolverKey` was removed). `Core/RatingRouter` picks the resolver
 per item from (source × level × available provider ids). The full evidence and every design
@@ -80,7 +80,7 @@ The strict ruleset makes several non-obvious things mandatory:
 | `Plugin.cs`, `PluginServiceRegistrator.cs`, `RatingEnrichmentService.cs` (root) | Entry point; DI wiring; **the public facade / composition root** (owns the shared `CircuitBreaker`, caches, `HttpClient`). |
 | `Configuration/` | `PluginConfiguration` (arrays!), `ResolverSetting`, `LibrarySourceSetting`, embedded `configPage.html`. |
 | `Core/` (+ `Core/Abstractions/`) | Host-independent domain: `RatingPipeline` (the §6 decision table), `EnrichmentRunner`, `RatingPrefetcher`, `PluginConfigurationMapper`, `InputIdSelector`, `CircuitBreaker`, `ItemLevel`, `IClock`; seam interfaces (`IItemWriter`, `IRatingCache`, `IBackupStore`). |
-| `Resolvers/` (+ `Mdblist/`, `Imdb/`) | `IRatingResolver`/`IBatchRatingResolver`, `MdblistResolver`, `ImdbDatasetResolver`, `RatingSourceInfo` + wire DTOs. `Imdb/ImdbRatingsIndex` is the pure TSV parse + binary-search lookup; `Imdb/ImdbRatingsDataset` owns the download, disk cache and refresh. |
+| `Resolvers/` (+ `Mdblist/`, `Imdb/`) | `IRatingResolver`/`IBatchRatingResolver`, `MdblistResolver`, `ImdbDatasetResolver`, `RatingSourceInfo` + wire DTOs. `Imdb/ImdbRatingsIndex` and `Imdb/ImdbEpisodeMap` are the pure TSV parses (binary search / dictionary lookup); `Imdb/ImdbDatasetFile` owns download, disk cache, sidecar stamp and refresh for both, wrapped by `Imdb/ImdbRatingsDataset` and `Imdb/ImdbEpisodeDataset`. |
 | `Persistence/` | `FileRatingCache`, `BackupStore`, `DailyRequestCounter`, `ICacheFileStore`. |
 | `Infrastructure/` | `JellyfinItemWriter` (implements `IItemWriter`), `BudgetTrackingHandler`. |
 | `Api/` | `StatusController` (`[Authorize(RequiresElevation)]`) + DTOs. |
@@ -116,12 +116,18 @@ The strict ruleset makes several non-obvious things mandatory:
   position — TheTVDB and IMDb numbering diverge (Futurama from S6 on) and positional matching writes
   the wrong episode's score with no error. `InheritedProviderIdFilter` drops an id an episode only
   carries because it came from its series.
-- **A season has no IMDb entry.** Its score is aggregated by `SeasonRatingAggregator` from the
-  episodes the library holds — unweighted mean, away-from-zero, and **all-or-nothing**: every
-  episode must have resolved or there is no season score. IMDb rates every aired episode, so a
-  gap is an unmatched episode, not an unrated one. Members arrive through
-  `RatingWorkItem.MemberInputIds` (one entry per episode, blank where it has no id — the count
-  is the season's episode total) because only the host knows them.
+- **A season has no IMDb entry, and its score is _IMDb's_ season — not the episodes on disk.**
+  The members in `RatingWorkItem.MemberInputIds` (only the host knows them) merely *identify*
+  which IMDb `(series, season)` pair this is, by looking their ids up in `ImdbEpisodeMap`. The
+  score is then the unweighted mean, away-from-zero, over every episode **IMDb** lists for that
+  season, so a partially downloaded season still gets the figure IMDb's own page shows.
+  **Never** translate the Jellyfin season number — that is the same positional trap as episodes.
+  Members landing in two IMDb seasons (diverged numbering), or in none (a specials season: IMDb
+  has no season-0 rows at all), are refused rather than guessed. An unavailable episode map is an
+  `Error`, never a `NoMatch` — under `ClearField` a failed 55 MB download would otherwise wipe
+  every season score in the library. `EnsureCoversAsync` (host) filters the map to the series
+  being processed; `GetMapAsync` (resolver) only reads it, because a resolver holding episode ids
+  cannot know their series — that is what the map is for.
 - **Humble Object:** tasks, controllers, and the item writer are thin shells over testable core
   logic behind `Core/Abstractions`. Fakes live in `tests/…/Fakes/`.
 - **Live config reads via `Func<>` accessors + `IClock`/`SystemClock`** (no captured snapshots), so

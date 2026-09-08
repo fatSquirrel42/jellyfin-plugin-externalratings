@@ -245,18 +245,19 @@ public sealed class ImdbRatingsDatasetTests : IDisposable
     }
 
     [Fact]
-    public async Task ReportsCountAndTimestamp()
+    public async Task ReportsWhenItLoaded()
     {
+        // The row count belongs to the parsed index; the dataset only knows when the file it
+        // parsed was fetched, which is what the status endpoint reports.
         var handler = Serves(Gzip(Tsv(("tt0000100", "6.0"))));
         var clock = new FakeClock();
         using var dataset = Create(handler, clock);
 
-        dataset.Count.Should().Be(0);
         dataset.LoadedFromUtc.Should().BeNull();
 
-        await dataset.GetIndexAsync(CancellationToken.None);
+        var index = await dataset.GetIndexAsync(CancellationToken.None);
 
-        dataset.Count.Should().Be(1);
+        index.Count.Should().Be(1);
         dataset.LoadedFromUtc.Should().NotBeNull();
     }
 

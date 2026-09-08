@@ -1,9 +1,5 @@
 using System;
-using System.IO;
-using System.IO.Compression;
-using System.Net;
-using System.Net.Http;
-using System.Text;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -18,55 +14,19 @@ namespace Jellyfin.Plugin.ExternalRatings.Tests;
 
 public sealed class ImdbDatasetResolverTests : IDisposable
 {
-    private readonly string _dir;
-    private readonly ImdbRatingsDataset _dataset;
+    /// <summary>Breaking Bad's numeric tconst — the series both fake episodes hang off.</summary>
+    private const long BreakingBad = 903747;
+
+    private readonly ImdbTestDatasets _datasets;
     private readonly ImdbDatasetResolver _resolver;
 
     public ImdbDatasetResolverTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "extratings-imdbres-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_dir);
-
-        // Real rows: Breaking Bad the series, and "Ozymandias" the episode.
-        var handler = new FakeHttpMessageHandler((_, _) => Task.FromResult(
-            new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new ByteArrayContent(Gzip(
-                    "tconst\taverageRating\tnumVotes\n" +
-                    "tt0903747\t9.5\t2671907\n" +
-                    "tt2301451\t9.5\t507558\n" +
-                    "tt16364366\t6.8\t3217\n"))
-            }));
-
-        _dataset = new ImdbRatingsDataset(
-            new HttpClient(handler), _dir, () => TimeSpan.FromHours(24), new FakeClock(), NullLogger.Instance);
-        _resolver = new ImdbDatasetResolver(_dataset);
+        _datasets = ImdbTestDatasets.Create();
+        _resolver = new ImdbDatasetResolver(_datasets.Ratings, _datasets.Episodes, NullLogger.Instance);
     }
 
-    public void Dispose()
-    {
-        _dataset.Dispose();
-        try
-        {
-            Directory.Delete(_dir, recursive: true);
-        }
-        catch (IOException)
-        {
-            // Ignore a leaked temp dir.
-        }
-    }
-
-    private static byte[] Gzip(string tsv)
-    {
-        using var output = new MemoryStream();
-        using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true))
-        {
-            var bytes = Encoding.UTF8.GetBytes(tsv);
-            gzip.Write(bytes, 0, bytes.Length);
-        }
-
-        return output.ToArray();
-    }
+    public void Dispose() => _datasets.Dispose();
 
     private static RatingRequest Request(ItemLevel level, string id, string source = "imdb")
         => new(level, "Imdb", id, source);
@@ -130,53 +90,75 @@ public sealed class ImdbDatasetResolverTests : IDisposable
         result.Resolution.Should().Be(RatingResolution.NoMatch);
     }
 
-    // --- season: aggregated from the episodes the host supplies ---
+    // --- season: IMDb's season, identified by the episodes the host supplies ---
+    //
+    // The members only *identify* which IMDb season this is; the episodes averaged are the ones IMDb
+    // lists for it. The fake episode map puts tt2301451 (9.5) and tt16364366 (6.8) in Breaking Bad
+    // season 5, so a correctly identified season averages 8.15 -> 8.2 no matter how many of the two
+    // the "library" holds.
 
-    private RatingRequest SeasonRequest(params string[] memberIds)
-        => new(ItemLevel.Season, "Imdb", "tt0903747/S1#" + memberIds.Length, "imdb", memberIds);
+    private static RatingRequest SeasonRequest(params string[] memberIds)
+        => new(ItemLevel.Season, "Imdb", "tt0903747/S5#" + memberIds.Length, "imdb", memberIds);
+
+    /// <summary>Does what the host does before a pass: tells the map which series to cover.</summary>
+    private Task CoverBreakingBadAsync()
+        => _datasets.Episodes.EnsureCoversAsync(new HashSet<long> { BreakingBad }, CancellationToken.None);
 
     [Fact]
-    public async Task SeasonAveragesItsEpisodes()
+    public async Task SeasonAveragesEveryEpisodeImdbListsForIt_NotOnlyTheOnesOnDisk()
     {
-        // 9.5 and 6.8 -> 8.15, rounded away from zero.
-        var result = await _resolver.ResolveAsync(
-            SeasonRequest("tt2301451", "tt16364366"), CancellationToken.None);
+        // The point of the whole design: one episode on disk, and the score is still the season's.
+        await CoverBreakingBadAsync();
+
+        var result = await _resolver.ResolveAsync(SeasonRequest("tt2301451"), CancellationToken.None);
 
         result.Resolution.Should().Be(RatingResolution.Found);
         result.Score.Should().Be(8.2f);
     }
 
     [Fact]
-    public async Task AMemberTheDatasetDoesNotKnow_MeansNoSeasonScore()
+    public async Task AMemberTheEpisodeMapDoesNotKnow_DoesNotBlockTheSeason()
     {
-        // All-or-nothing. Two of three resolving used to be enough under a 50% threshold; it is
-        // not any more, because IMDb rates every aired episode and so the third member is an
-        // unmatched episode rather than an unrated one.
+        // It used to: back when the season was the mean of our own hits, an unmatched episode meant
+        // no score at all. Now an unresolvable member is simply not a witness.
+        await CoverBreakingBadAsync();
+
         var result = await _resolver.ResolveAsync(
-            SeasonRequest("tt0903747", "tt2301451", "tt9999999"), CancellationToken.None);
-
-        result.Resolution.Should().Be(RatingResolution.NoMatch);
-    }
-
-    [Fact]
-    public async Task AnEpisodeWithoutAnIdIsABlankMember_AndAlsoBlocksTheSeason()
-    {
-        // How the host reports an episode that has no IMDb id of its own: a blank entry, kept so
-        // the count stays the season's true episode total.
-        var result = await _resolver.ResolveAsync(
-            SeasonRequest("tt0903747", "tt2301451", string.Empty), CancellationToken.None);
-
-        result.Resolution.Should().Be(RatingResolution.NoMatch);
-    }
-
-    [Fact]
-    public async Task ACompleteSeasonResolves()
-    {
-        var result = await _resolver.ResolveAsync(
-            SeasonRequest("tt0903747", "tt2301451"), CancellationToken.None);
+            SeasonRequest("tt2301451", "tt9999999"), CancellationToken.None);
 
         result.Resolution.Should().Be(RatingResolution.Found);
-        result.Score.Should().Be(9.5f);
+        result.Score.Should().Be(8.2f);
+    }
+
+    [Fact]
+    public async Task ASeasonNoMemberCanIdentifyIsNoMatch()
+    {
+        // No witness resolves, so there is nothing to anchor on. A specials season lands here by
+        // construction: IMDb has no season 0 rows at all.
+        await CoverBreakingBadAsync();
+
+        var result = await _resolver.ResolveAsync(SeasonRequest("tt9999999"), CancellationToken.None);
+
+        result.Resolution.Should().Be(RatingResolution.NoMatch);
+    }
+
+    [Fact]
+    public async Task ASeasonSpanningTwoImdbSeasonsIsRefused()
+    {
+        // The Futurama case: TheTVDB's season and IMDb's disagree, so the members land in two IMDb
+        // seasons. Nothing is written rather than one of the two being guessed at.
+        using var diverging = ImdbTestDatasets.Create(episodeRows:
+            "tt2301451\ttt0903747\t5\t14\n" +
+            "tt16364366\ttt0903747\t6\t1\n");
+        await diverging.Episodes.EnsureCoversAsync(
+            new HashSet<long> { BreakingBad }, CancellationToken.None);
+        var resolver = new ImdbDatasetResolver(
+            diverging.Ratings, diverging.Episodes, NullLogger.Instance);
+
+        var result = await resolver.ResolveAsync(
+            SeasonRequest("tt2301451", "tt16364366"), CancellationToken.None);
+
+        result.Resolution.Should().Be(RatingResolution.NoMatch);
     }
 
     [Fact]
@@ -184,6 +166,8 @@ public sealed class ImdbDatasetResolverTests : IDisposable
     {
         // An empty season resolves to nothing rather than erroring: it is a legitimate library
         // state, not a fault.
+        await CoverBreakingBadAsync();
+
         var result = await _resolver.ResolveAsync(SeasonRequest(), CancellationToken.None);
 
         result.Resolution.Should().Be(RatingResolution.NoMatch);
@@ -192,11 +176,29 @@ public sealed class ImdbDatasetResolverTests : IDisposable
     [Fact]
     public async Task SeasonIgnoresItsOwnInputId()
     {
-        // The synthetic "tt0903747/S1#1" is a cache key, not something to look up.
+        // The synthetic "tt0903747/S5#1" is a cache key, not something to look up — and the season
+        // number in it is never translated to IMDb's. One member identifies season 5, and the score
+        // is that season's mean (8.2), not the member's own 6.8.
+        await CoverBreakingBadAsync();
+
         var result = await _resolver.ResolveAsync(SeasonRequest("tt16364366"), CancellationToken.None);
 
         result.Resolution.Should().Be(RatingResolution.Found);
-        result.Score.Should().Be(6.8f);
+        result.Score.Should().Be(8.2f);
+    }
+
+    [Fact]
+    public async Task AnUnavailableEpisodeMapIsAnError_NotANoMatch()
+    {
+        // A failed 54-MB download must not clear every season rating in the library, which is what a
+        // no-match would do under the ClearField default.
+        using var offline = ImdbTestDatasets.Create(episodesOffline: true);
+        var resolver = new ImdbDatasetResolver(offline.Ratings, offline.Episodes, NullLogger.Instance);
+
+        var result = await resolver.ResolveAsync(SeasonRequest("tt2301451"), CancellationToken.None);
+
+        result.Resolution.Should().Be(RatingResolution.Error);
+        result.ErrorDetail.Should().Contain("episode");
     }
 
     [Fact]
@@ -231,20 +233,22 @@ public sealed class ImdbDatasetResolverTests : IDisposable
     }
 
     [Fact]
-    public async Task AnUnavailableDatasetIsAnError_NotANoMatch()
+    public async Task AnUnavailableRatingsDatasetIsAnError_NotANoMatch()
     {
         // Same reasoning as the foreign-source case: an empty index must never clear the library.
-        var dir = Path.Combine(Path.GetTempPath(), "extratings-imdbres-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
+        var dir = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), "extratings-imdbres-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(dir);
         try
         {
-            using var dataset = new ImdbRatingsDataset(
-                new HttpClient(FakeHttpMessageHandler.Throws(new HttpRequestException("offline"))),
+            using var ratings = new ImdbRatingsDataset(
+                new System.Net.Http.HttpClient(
+                    FakeHttpMessageHandler.Throws(new System.Net.Http.HttpRequestException("offline"))),
                 dir,
                 () => TimeSpan.FromHours(24),
                 new FakeClock(),
                 NullLogger.Instance);
-            var resolver = new ImdbDatasetResolver(dataset);
+            var resolver = new ImdbDatasetResolver(ratings, _datasets.Episodes, NullLogger.Instance);
 
             var result = await resolver.ResolveAsync(Request(ItemLevel.Series, "tt0903747"), CancellationToken.None);
 
@@ -253,7 +257,7 @@ public sealed class ImdbDatasetResolverTests : IDisposable
         }
         finally
         {
-            Directory.Delete(dir, recursive: true);
+            System.IO.Directory.Delete(dir, recursive: true);
         }
     }
 

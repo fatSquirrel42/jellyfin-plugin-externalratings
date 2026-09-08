@@ -15,34 +15,21 @@ namespace Jellyfin.Plugin.ExternalRatings.Core;
 /// <c>docs/level-support-diagnosis.md</c> §3.
 /// </para>
 /// <para>
-/// The average is taken over the episodes the *library* has, not over IMDb's idea of the season.
-/// Where the two numberings agree — nearly always — the result is the value IMDb displays. Where
-/// they diverge it deliberately differs: asking "which IMDb season is this Jellyfin season?" is the
-/// positional guess that was rejected for episodes, and averaging IMDb's members would describe a
-/// season the user does not have.
-/// </para>
-/// <para>
-/// It is all-or-nothing. IMDb rates every episode that has aired, so a member without a score is
-/// an *unmatched* episode rather than an unrated one, and an average over the remainder would
-/// quietly describe a different season than the one being written to. This replaced a configurable
-/// coverage threshold that could not do the job: it counted only episodes that already had an IMDb
-/// id, so a season with 2 of 12 matched reported 100 % coverage and got a two-episode "average".
+/// The scores handed in are IMDb's whole season, not the episodes the library happens to hold —
+/// <see cref="Resolvers.ImdbDatasetResolver"/> identifies the season from its episodes and then
+/// collects every episode IMDb lists for it. Unrated episodes simply do not appear, which is what
+/// IMDb's own figure does too, so there is nothing to gate on here: this is a mean and a rounding
+/// rule, and the judgement lives in the resolver.
 /// </para>
 /// </remarks>
 internal static class SeasonRatingAggregator
 {
-    /// <summary>Averages the episode scores, but only if every episode of the season resolved.</summary>
-    /// <param name="memberRatings">The scores that resolved, on Jellyfin's 0–10 scale.</param>
-    /// <param name="memberCount">
-    /// How many episodes the season holds — every non-virtual episode, matched or not. Unaired
-    /// episodes are virtual items and are never counted, so an airing season is judged complete on
-    /// the episodes it actually has.
-    /// </param>
-    /// <returns>The mean rounded to one decimal, or <see langword="null"/> if it should not be written.</returns>
-    public static float? Average(IReadOnlyList<float> memberRatings, int memberCount)
+    /// <summary>Averages the episode scores of a season.</summary>
+    /// <param name="memberRatings">The season's episode scores, on Jellyfin's 0–10 scale.</param>
+    /// <returns>The mean rounded to one decimal, or <see langword="null"/> when there is nothing to average.</returns>
+    public static float? Average(IReadOnlyList<float> memberRatings)
     {
-        // Zero of zero is vacuously complete; an empty season must still produce nothing.
-        if (memberCount <= 0 || memberRatings.Count != memberCount)
+        if (memberRatings.Count == 0)
         {
             return null;
         }

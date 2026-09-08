@@ -65,6 +65,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     // counter from headers the IMDb CDN never sends.
     private readonly HttpClient _datasetHttpClient;
     private readonly ImdbRatingsDataset _imdbDataset;
+    private readonly ImdbEpisodeDataset _imdbEpisodes;
     private readonly object _statusGate = new();
     private readonly object _flushGate = new();
 
@@ -145,14 +146,13 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             Timeout = TimeSpan.FromMinutes(10)
         };
         _datasetHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Jellyfin-Plugin-ExternalRatings");
+        Func<TimeSpan> datasetRefresh = () => Plugin.Instance is { } plugin
+            ? PluginConfigurationMapper.ToDatasetRefreshInterval(plugin.Configuration)
+            : TimeSpan.FromDays(1);
         _imdbDataset = new ImdbRatingsDataset(
-            _datasetHttpClient,
-            dataDir,
-            () => Plugin.Instance is { } plugin
-                ? PluginConfigurationMapper.ToDatasetRefreshInterval(plugin.Configuration)
-                : TimeSpan.FromDays(1),
-            _clock,
-            new Logger<ImdbRatingsDataset>(_loggerFactory));
+            _datasetHttpClient, dataDir, datasetRefresh, _clock, new Logger<ImdbRatingsDataset>(_loggerFactory));
+        _imdbEpisodes = new ImdbEpisodeDataset(
+            _datasetHttpClient, dataDir, datasetRefresh, _clock, new Logger<ImdbEpisodeDataset>(_loggerFactory));
     }
 
     /// <summary>Gets a value indicating whether any resolver's circuit breaker is currently open.</summary>
@@ -235,7 +235,15 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
 
         try
         {
-            var (items, liveIds) = BuildWorkItems(config);
+            var (items, liveIds, seriesIds) = BuildWorkItems(config);
+
+            // Filter the episode map to this library's series before the pass, so a season resolves
+            // on its first item instead of triggering a rebuild mid-run.
+            if (seriesIds.Count > 0)
+            {
+                await _imdbEpisodes.EnsureCoversAsync(seriesIds, cancellationToken).ConfigureAwait(false);
+            }
+
             var summary = await runner.RunAsync(items, liveIds, progress, cancellationToken).ConfigureAwait(false);
 
             lock (_statusGate)
@@ -336,6 +344,17 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         {
             memberIds = CollectSeasonMembers(seasonItem);
             providerIds = BuildSeasonProviderIds(baseItem, memberIds.Count);
+
+            // The episode map may have been built without this series — a new show, or a season the
+            // last full pass never saw — so widen it before the resolver reads it.
+            if (seasonItem.Series is { } series
+                && ReadProviderIds(series).TryGetValue("Imdb", out var seriesImdb)
+                && ImdbRatingsIndex.ParseTconst(seriesImdb) is { } seriesId)
+            {
+                await _imdbEpisodes
+                    .EnsureCoversAsync(new HashSet<long> { seriesId }, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         var workItem = new RatingWorkItem(
@@ -476,7 +495,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     {
         var resolvers = new IRatingResolver[]
         {
-            new ImdbDatasetResolver(_imdbDataset),
+            new ImdbDatasetResolver(_imdbDataset, _imdbEpisodes, new Logger<ImdbDatasetResolver>(_loggerFactory)),
             new MdblistResolver(_httpClient, string.Empty, new Logger<MdblistResolver>(_loggerFactory))
         };
 
@@ -500,8 +519,9 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                     Scale = source.Scale,
                     Rescaled = source.Rescaled,
                     Levels = router.ServableLevels(source.Key).Select(level => level.ToString()).ToList(),
-                    RequiresApiKey = !new ImdbDatasetResolver(_imdbDataset).SupportedRatingSources
-                        .Any(s => string.Equals(s.Key, source.Key, StringComparison.OrdinalIgnoreCase))
+                    // The offline dataset serves exactly one source; everything else is mdblist's.
+                    RequiresApiKey = !string.Equals(
+                        source.Key, ImdbDatasetResolver.ImdbSource, StringComparison.OrdinalIgnoreCase)
                 });
             }
         }
@@ -516,6 +536,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         _backup.Dispose();
         _httpClient.Dispose();
         _imdbDataset.Dispose();
+        _imdbEpisodes.Dispose();
         _datasetHttpClient.Dispose();
         _initGate.Dispose();
     }
@@ -606,7 +627,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     {
         var candidates = new List<IRatingResolver>(2)
         {
-            new ImdbDatasetResolver(_imdbDataset)
+            new ImdbDatasetResolver(_imdbDataset, _imdbEpisodes, new Logger<ImdbDatasetResolver>(_loggerFactory))
         };
 
         if (!string.IsNullOrWhiteSpace(apiKey))
@@ -724,7 +745,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         };
     }
 
-    private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config)
+    private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds, IReadOnlySet<long> SeriesIds) BuildWorkItems(PluginConfiguration config)
     {
         var query = BuildLibraryQuery(ProcessedLevels(config), config.EnabledLibraries);
 
@@ -734,8 +755,9 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         var defaultSource = PluginConfigurationMapper.ResolveSource(config, Array.Empty<Guid>());
 
         var levels = ProcessedLevels(config);
+        var seriesIds = new HashSet<long>();
         var seasonMembers = levels.Contains(ItemLevel.Season)
-            ? CollectSeasonMembers(config.EnabledLibraries)
+            ? CollectSeasonMembers(config.EnabledLibraries, seriesIds)
             : null;
 
         var items = new List<RatingWorkItem>();
@@ -788,7 +810,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 memberIds));
         }
 
-        return (items, liveIds);
+        return (items, liveIds, seriesIds);
     }
 
     /// <summary>
@@ -818,8 +840,14 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     /// a season aggregate is computed from. One query for the whole pass rather than one per season.
     /// </summary>
     /// <param name="enabledLibraries">The enabled CollectionFolder ids.</param>
+    /// <param name="seriesIds">
+    /// Receives the numeric IMDb id of every series seen, which is what the episode map has to be
+    /// filtered to. Collected here because nothing else in the pass enumerates Series items.
+    /// </param>
     /// <returns>Season id to its episodes' input ids.</returns>
-    private Dictionary<Guid, IReadOnlyList<string>> CollectSeasonMembers(Guid[] enabledLibraries)
+    private Dictionary<Guid, IReadOnlyList<string>> CollectSeasonMembers(
+        Guid[] enabledLibraries,
+        HashSet<long> seriesIds)
     {
         var query = new InternalItemsQuery
         {
@@ -837,13 +865,24 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 continue;
             }
 
+            // The series id comes for free here and is what the episode map must be filtered to.
+            // Nothing else in the pass enumerates Series items, so this is the cheapest source.
+            if (episode.Series is { } series
+                && ReadProviderIds(series).TryGetValue("Imdb", out var seriesImdb)
+                && ImdbRatingsIndex.ParseTconst(seriesImdb) is { } seriesId)
+            {
+                seriesIds.Add(seriesId);
+            }
+
             // Same ids the episode itself would resolve by, inherited-id filter included: a season
-            // must never be averaged from ids that are really its series'. An episode without a
-            // usable id is recorded as a blank rather than skipped — it still counts towards the
-            // season's episode total, which is what makes it fail the completeness rule instead of
-            // quietly shrinking the set it is averaged over.
+            // must never be identified from ids that are really its series'. These members only
+            // *identify* which IMDb season this is — the episodes actually averaged are IMDb's — so
+            // an episode without an id is not a useful witness and is simply left out.
             var ids = ExtractProviderIds(baseItem);
-            ids.TryGetValue("Imdb", out var imdbId);
+            if (!ids.TryGetValue("Imdb", out var imdbId) || string.IsNullOrWhiteSpace(imdbId))
+            {
+                continue;
+            }
 
             if (!members.TryGetValue(episode.SeasonId, out var list))
             {
@@ -851,7 +890,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 members[episode.SeasonId] = list;
             }
 
-            ((List<string>)list).Add(string.IsNullOrWhiteSpace(imdbId) ? string.Empty : imdbId);
+            ((List<string>)list).Add(imdbId);
         }
 
         return members;
@@ -870,12 +909,15 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             IsVirtualItem = false
         };
 
-        // One entry per episode, blank where it has no usable id — see the full-pass overload.
+        // Witnesses for identifying the IMDb season — see the full-pass overload.
         var ids = new List<string>();
         foreach (var baseItem in _libraryManager.GetItemList(query))
         {
-            ExtractProviderIds(baseItem).TryGetValue("Imdb", out var imdbId);
-            ids.Add(string.IsNullOrWhiteSpace(imdbId) ? string.Empty : imdbId);
+            if (ExtractProviderIds(baseItem).TryGetValue("Imdb", out var imdbId)
+                && !string.IsNullOrWhiteSpace(imdbId))
+            {
+                ids.Add(imdbId);
+            }
         }
 
         return ids;
