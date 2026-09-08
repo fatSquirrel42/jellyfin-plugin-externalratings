@@ -4,16 +4,20 @@ A Jellyfin server plugin that resolves an external community score and writes it
 standard `CommunityRating` field. Targets **Jellyfin 10.11.x** (`net9.0`). (Jellyfin 12.0 needs a
 separate net10.0 build — see [docs/jellyfin-12-compat.md](docs/jellyfin-12-compat.md).)
 
-Two providers, picked on the config page:
+You pick a **rating source**; the plugin works out how to reach it. There is no backend to choose.
 
-| Provider | Levels | Sources | Needs |
-| --- | --- | --- | --- |
-| **mdblist** | Movies, Series | IMDb, MyAnimeList, Metacritic, Trakt, TMDb, Rotten Tomatoes, Letterboxd | An API key; 1000 requests/day on the free tier |
-| **IMDb (offline dataset)** | Movies, Series, Seasons, Episodes | IMDb | Nothing — it downloads IMDb's own ~9 MB ratings file once a day |
+| Source | Levels | Needs |
+| --- | --- | --- |
+| **IMDb** | Movies, Series, Seasons, Episodes | Nothing — a local copy of IMDb's own ~9 MB ratings file, refreshed daily |
+| MyAnimeList, Metacritic, Trakt, TMDb, Rotten Tomatoes, Letterboxd | Movies, Series | An mdblist API key; 1000 requests/day on the free tier |
 
-Only the dataset provider reaches **episodes**. mdblist's per-episode data became a paid perk and is
-unavailable on the batch endpoint either way — the evidence is in
+Only IMDb reaches **seasons and episodes**. mdblist's per-episode data became a paid perk and is
+unavailable on its batch endpoint either way — the evidence is in
 [docs/level-support-diagnosis.md](docs/level-support-diagnosis.md).
+
+For IMDb the local file is used wherever the item has an IMDb id. Where it does not but has a TMDb
+id, the score is fetched through mdblist instead — so an API key widens IMDb coverage without being
+required for it.
 
 ## What it does
 
@@ -68,13 +72,13 @@ local dev/test.)
 
 After restart, open **Dashboard → Plugins → External Ratings** and set:
 
-1. A **rating provider**. mdblist needs an API key (free tier = 1000 requests/day); the IMDb
-   dataset needs nothing.
-2. A **rating source**, and at least one **enabled library**.
-3. The **item levels** to process. Movies and Series are on by default; Seasons and Episodes are
-   off, and only the IMDb dataset provider offers them. Enabling episodes can multiply the number
-   of processed items by a hundred in a TV library, so turn them on deliberately.
-4. **Dry run is ON by default** — nothing is written until you turn it off. Leave it on for a first,
+1. A **rating source**, and at least one **enabled library**. Only IMDb works without an mdblist
+   API key.
+2. The **item levels** to process. Movies and Series are on by default; Seasons and Episodes are
+   off. Enabling episodes can multiply the number of processed items by a hundred in a TV library,
+   so turn them on deliberately — and note that in a library whose source has no score at a level,
+   those items are *cleared* rather than left alone.
+3. **Dry run is ON by default** — nothing is written until you turn it off. Leave it on for a first,
    read-only pass; turn it off to actually write `CommunityRating`.
 
 Trigger a run from **Dashboard → Scheduled Tasks → "Enrich External Ratings"** (on demand). It also
