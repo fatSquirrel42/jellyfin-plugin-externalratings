@@ -35,12 +35,18 @@ public class RatingPipelineTests
     private sealed class Harness
     {
         public Harness(IRatingResolver resolver)
+            : this(new FixedRouter(resolver))
+        {
+        }
+
+        public Harness(IRatingRouter router)
         {
             Backup = new RecordingBackupStore(Recorder);
             Writer = new RecordingItemWriter(Recorder);
             Cache = new FileRatingCache(new InMemoryCacheFileStore(), Clock);
             Breaker = new CircuitBreaker(Clock);
-            Pipeline = new RatingPipeline(resolver, Writer, Backup, Cache, Clock, Breaker, () => Options, NullLogger<RatingPipeline>.Instance);
+            Pipeline = new RatingPipeline(
+                router, Writer, Backup, Cache, Clock, _ => Breaker, () => Options, NullLogger<RatingPipeline>.Instance);
         }
 
         public FakeClock Clock { get; } = new();
@@ -385,6 +391,128 @@ public class RatingPipelineTests
         outcome.Should().Be(RatingOutcome.Cleared);
         h.Writer.Writes[0].Value.Should().BeNull();
         h.Recorder.IndexOf($"Backup:{Id1}").Should().BeLessThan(h.Recorder.IndexOf($"Write:{Id1}"));
+    }
+
+    // --- routing: no route is a write decision, not a silent skip ---
+
+    private static RatingWorkItem ItemWithSource(Guid id, ItemLevel level, string source, params (string Provider, string Id)[] ids)
+    {
+        var dict = new Dictionary<string, string>();
+        foreach (var (provider, value) in ids)
+        {
+            dict[provider] = value;
+        }
+
+        return new RatingWorkItem(new RatingItemRef(id, level.ToString()), level, dict, source);
+    }
+
+    private static IRatingRouter TwoBackendRouter()
+    {
+        // Mirrors the shipped pair: the offline dataset (imdb, all levels) and mdblist (many
+        // sources, movies and series only).
+        var dataset = new StubRatingResolver(RatingResult.ForScore(8.0f))
+        {
+            Key = "imdb-dataset",
+            SupportedRatingSources = new[] { new RatingSourceInfo("imdb", "IMDb", "0–10", false) },
+            SupportedInputProviders = new Dictionary<ItemLevel, IReadOnlyList<string>>
+            {
+                [ItemLevel.Movie] = new[] { "Imdb" },
+                [ItemLevel.Series] = new[] { "Imdb" },
+                [ItemLevel.Season] = new[] { "Imdb" },
+                [ItemLevel.Episode] = new[] { "Imdb" }
+            }
+        };
+
+        var mdblist = new StubRatingResolver(RatingResult.ForScore(7.0f))
+        {
+            Key = "mdblist",
+            SupportedRatingSources = new[]
+            {
+                new RatingSourceInfo("imdb", "IMDb", "0–10", false),
+                new RatingSourceInfo("myanimelist", "MyAnimeList", "0–10", false)
+            },
+            SupportedInputProviders = new Dictionary<ItemLevel, IReadOnlyList<string>>
+            {
+                [ItemLevel.Movie] = new[] { "Tmdb", "Imdb" },
+                [ItemLevel.Series] = new[] { "Tmdb", "Imdb" }
+            }
+        };
+
+        return new RatingRouter(new IRatingResolver[] { dataset, mdblist });
+    }
+
+    [Fact]
+    public async Task SourceWithoutScoresAtThisLevel_IsClearedNotSkipped()
+    {
+        // The behaviour this design deliberately chose: an episode in a library set to MyAnimeList
+        // has no route at all, and the field is emptied rather than left alone, so it always shows
+        // the configured source or nothing. Guard it — otherwise it reads like a bug and gets
+        // "fixed" back into a silent skip (see docs/lessons-learned.md lesson 8 for the inverse).
+        var h = new Harness(TwoBackendRouter())
+        {
+            Options = new PipelineOptions { DryRun = false, UnsupportedLevelBehavior = UnsupportedLevelBehavior.ClearField }
+        };
+        h.Writer.SeedRating(Id1, 8.3f);
+
+        var outcome = await h.Run(ItemWithSource(Id1, ItemLevel.Episode, "myanimelist", ("Imdb", "tt2301451")));
+
+        outcome.Should().Be(RatingOutcome.Cleared);
+        h.Writer.Writes[0].Value.Should().BeNull();
+        h.Recorder.IndexOf($"Backup:{Id1}").Should().BeLessThan(h.Recorder.IndexOf($"Write:{Id1}"));
+    }
+
+    [Fact]
+    public async Task SourceWithoutScoresAtThisLevel_LeaveExisting_KeepsTheRating()
+    {
+        var h = new Harness(TwoBackendRouter())
+        {
+            Options = new PipelineOptions { DryRun = false, UnsupportedLevelBehavior = UnsupportedLevelBehavior.LeaveExisting }
+        };
+        h.Writer.SeedRating(Id1, 8.3f);
+
+        var outcome = await h.Run(ItemWithSource(Id1, ItemLevel.Episode, "myanimelist", ("Imdb", "tt2301451")));
+
+        outcome.Should().Be(RatingOutcome.NotSupported);
+        h.Writer.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AnEpisodeOnImdb_RoutesToTheDataset()
+    {
+        var h = new Harness(TwoBackendRouter()) { Options = new PipelineOptions { DryRun = false } };
+
+        var outcome = await h.Run(ItemWithSource(Id1, ItemLevel.Episode, "imdb", ("Imdb", "tt2301451")));
+
+        outcome.Should().Be(RatingOutcome.Updated);
+        h.Writer.Writes[0].Value.Should().Be(8.0f);
+    }
+
+    [Fact]
+    public async Task AMovieOnImdbWithoutAnImdbId_FallsBackToMdblist()
+    {
+        // The fallback the routing rule exists for: no IMDb id, but mdblist reaches the IMDb score
+        // through the Tmdb id. The 7.0 is mdblist's stub, so the write proves which backend ran.
+        var h = new Harness(TwoBackendRouter()) { Options = new PipelineOptions { DryRun = false } };
+
+        var outcome = await h.Run(ItemWithSource(Id1, ItemLevel.Movie, "imdb", ("Tmdb", "129")));
+
+        outcome.Should().Be(RatingOutcome.Updated);
+        h.Writer.Writes[0].Value.Should().Be(7.0f);
+    }
+
+    [Fact]
+    public async Task NoUsableIdAtAll_CountsAsSkippedNoId_NotNotSupported()
+    {
+        // Same write decision, different accounting: the source *does* serve this level, the item
+        // just has no id for it.
+        var h = new Harness(TwoBackendRouter())
+        {
+            Options = new PipelineOptions { DryRun = false, UnsupportedLevelBehavior = UnsupportedLevelBehavior.LeaveExisting }
+        };
+
+        var outcome = await h.Run(ItemWithSource(Id1, ItemLevel.Episode, "imdb", ("Tvdb", "8951947")));
+
+        outcome.Should().Be(RatingOutcome.SkippedNoId);
     }
 
     [Fact]

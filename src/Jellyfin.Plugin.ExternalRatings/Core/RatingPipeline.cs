@@ -17,42 +17,46 @@ namespace Jellyfin.Plugin.ExternalRatings.Core;
 /// </summary>
 internal sealed class RatingPipeline
 {
-    private readonly IRatingResolver _resolver;
+    private readonly IRatingRouter _router;
     private readonly IItemWriter _writer;
     private readonly IBackupStore _backup;
     private readonly IRatingCache _cache;
     private readonly IClock _clock;
-    private readonly CircuitBreaker _breaker;
+    private readonly Func<string, CircuitBreaker> _breakerFor;
     private readonly Func<PipelineOptions> _optionsAccessor;
     private readonly ILogger<RatingPipeline> _logger;
     private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _locks = new();
     private readonly ConcurrentDictionary<RatingCacheKey, DateTimeOffset> _errorCache = new();
 
     /// <summary>Initializes a new instance of the <see cref="RatingPipeline"/> class.</summary>
-    /// <param name="resolver">The rating resolver.</param>
+    /// <param name="router">Picks the resolver per item from (source × level × available ids).</param>
     /// <param name="writer">The item writer.</param>
     /// <param name="backup">The backup store.</param>
     /// <param name="cache">The rating cache.</param>
     /// <param name="clock">The clock.</param>
-    /// <param name="breaker">The global circuit breaker.</param>
+    /// <param name="breakerFor">
+    /// Returns the circuit breaker for a resolver key. One breaker per resolver, so a failing
+    /// backend cannot stop a healthy one — with a single shared breaker an invalid mdblist key would
+    /// trip it and the offline dataset's items would be skipped along with mdblist's.
+    /// </param>
     /// <param name="optionsAccessor">Accessor read fresh per item so DryRun toggles apply immediately.</param>
     /// <param name="logger">The logger.</param>
     public RatingPipeline(
-        IRatingResolver resolver,
+        IRatingRouter router,
         IItemWriter writer,
         IBackupStore backup,
         IRatingCache cache,
         IClock clock,
-        CircuitBreaker breaker,
+        Func<string, CircuitBreaker> breakerFor,
         Func<PipelineOptions> optionsAccessor,
         ILogger<RatingPipeline> logger)
     {
-        _resolver = resolver;
+        _router = router;
         _writer = writer;
         _backup = backup;
         _cache = cache;
         _clock = clock;
-        _breaker = breaker;
+        _breakerFor = breakerFor;
         _optionsAccessor = optionsAccessor;
         _logger = logger;
     }
@@ -88,15 +92,18 @@ internal sealed class RatingPipeline
     {
         var options = _optionsAccessor();
 
-        // 1. Choose exactly one input id. Null means "unsupported level" or "no usable id".
-        var selection = InputIdSelector.Select(item.Level, item.ProviderIds);
-        if (selection is null)
+        // 1. Route: which resolver serves this item, and with which of its ids. No resolver means
+        // the configured source cannot reach this level, or the item has no id any of them accepts.
+        var route = _router.Route(item);
+        if (route.Resolver is null || route.Selection is null)
         {
-            return await HandleUnsupportedAsync(item, options, cancellationToken).ConfigureAwait(false);
+            return await HandleUnsupportedAsync(item, options, route.LevelServableBySource, cancellationToken).ConfigureAwait(false);
         }
 
-        var chosen = selection.Value;
-        var key = new RatingCacheKey(_resolver.Key, item.TargetSource, chosen.Provider, chosen.Id, item.Level);
+        var resolver = route.Resolver;
+        var breaker = _breakerFor(resolver.Key);
+        var chosen = route.Selection.Value;
+        var key = new RatingCacheKey(resolver.Key, item.TargetSource, chosen.Provider, chosen.Id, item.Level);
 
         // 2. Persistent cache (positive/negative).
         if (_cache.TryGet(key, out var cached))
@@ -130,7 +137,7 @@ internal sealed class RatingPipeline
         }
 
         // 4. Circuit-breaker gate.
-        if (!_breaker.AllowRequest())
+        if (!breaker.AllowRequest())
         {
             return RatingOutcome.CircuitOpen;
         }
@@ -139,14 +146,14 @@ internal sealed class RatingPipeline
         RatingResult result;
         try
         {
-            var request = new RatingRequest(item.Level, chosen.Provider, chosen.Id, item.TargetSource);
-            result = await _resolver.ResolveAsync(request, cancellationToken).ConfigureAwait(false);
+            var request = new RatingRequest(item.Level, chosen.Provider, chosen.Id, item.TargetSource, item.MemberInputIds);
+            result = await resolver.ResolveAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             // Release the breaker's half-open probe so a cancelled probe cannot wedge the breaker in
             // HalfOpen and refuse every future request (see CircuitBreaker.AbandonProbe).
-            _breaker.AbandonProbe();
+            breaker.AbandonProbe();
             throw;
         }
         catch (Exception ex)
@@ -172,12 +179,12 @@ internal sealed class RatingPipeline
                     return RecordError(key, options, "H14 invariant violated");
                 }
 
-                _breaker.RecordSuccess();
+                breaker.RecordSuccess();
                 _cache.Set(key, new RatingCacheEntry(RatingResolution.Found, result.Score, _clock.UtcNow + options.CacheTtl));
                 return await EvaluateFoundWriteAsync(item.Ref, result.Score!.Value, options, cancellationToken).ConfigureAwait(false);
 
             case RatingResolution.NoMatch:
-                _breaker.RecordSuccess();
+                breaker.RecordSuccess();
                 _cache.Set(key, new RatingCacheEntry(RatingResolution.NoMatch, null, _clock.UtcNow + options.NegativeCacheTtl));
                 if (chosen.HasUnusedAlternatives)
                 {
@@ -192,8 +199,11 @@ internal sealed class RatingPipeline
                 return RatingOutcome.NoMatch;
 
             case RatingResolution.NotSupportedForLevel:
-                _breaker.RecordSuccess();
-                return await HandleUnsupportedAsync(item, options, cancellationToken).ConfigureAwait(false);
+                // Defensive: the router only picks a resolver that declares this level, so a resolver
+                // contradicting itself here is a bug in that resolver, not a routing outcome. Report
+                // the level as unservable, which is what it just told us.
+                breaker.RecordSuccess();
+                return await HandleUnsupportedAsync(item, options, levelServableBySource: false, cancellationToken).ConfigureAwait(false);
 
             default:
                 _logger.LogWarning(
@@ -236,14 +246,19 @@ internal sealed class RatingPipeline
         return RatingOutcome.Updated;
     }
 
-    private async Task<RatingOutcome> HandleUnsupportedAsync(RatingWorkItem item, PipelineOptions options, CancellationToken cancellationToken)
+    private async Task<RatingOutcome> HandleUnsupportedAsync(
+        RatingWorkItem item,
+        PipelineOptions options,
+        bool levelServableBySource,
+        CancellationToken cancellationToken)
     {
         // "NotSupportedForLevel / no id" share one row: the configured behavior decides, never cached.
-        // Note the shipped default is ClearField, not skip -- PluginConfiguration overrides the
-        // LeaveExisting default in PipelineOptions. The realtime path must therefore filter
-        // unsupported levels before the pipeline, or Episodes reach this row and lose their rating.
-        var levelSupported = InputIdSelector.ProviderPriority(item.Level).Count > 0;
-        var baseOutcome = levelSupported ? RatingOutcome.SkippedNoId : RatingOutcome.NotSupported;
+        // The shipped default is ClearField, not skip -- PluginConfiguration overrides the
+        // LeaveExisting default in PipelineOptions. That is deliberate and load-bearing here: an item
+        // whose configured source has no score at its level is *meant* to end up empty, so that the
+        // field always shows the configured source or nothing. Enabling Episode on a library set to a
+        // source without episode scores therefore clears those episodes (recoverable via Restore).
+        var baseOutcome = levelServableBySource ? RatingOutcome.SkippedNoId : RatingOutcome.NotSupported;
 
         if (options.UnsupportedLevelBehavior == UnsupportedLevelBehavior.ClearField)
         {
@@ -283,7 +298,8 @@ internal sealed class RatingPipeline
 
     private RatingOutcome RecordError(RatingCacheKey key, PipelineOptions options, string detail)
     {
-        _breaker.RecordError();
+        // The key carries which resolver produced the error, so the right breaker is charged.
+        _breakerFor(key.Resolver).RecordError();
         _errorCache[key] = _clock.UtcNow + options.ErrorCacheTtl;
         _logger.LogError("Rating error cached for {InputProvider}:{InputId}: {Detail}", key.InputProvider, key.InputId, detail);
         return RatingOutcome.Error;

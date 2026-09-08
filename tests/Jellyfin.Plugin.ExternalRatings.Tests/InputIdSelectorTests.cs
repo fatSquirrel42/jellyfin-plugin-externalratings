@@ -1,12 +1,19 @@
+using System;
 using System.Collections.Generic;
 using FluentAssertions;
 using Jellyfin.Plugin.ExternalRatings.Core;
+using Jellyfin.Plugin.ExternalRatings.Tests.Fakes;
 using Xunit;
 
 namespace Jellyfin.Plugin.ExternalRatings.Tests;
 
 public class InputIdSelectorTests
 {
+    // The mdblist priorities, restated here so these tests describe a selector contract rather
+    // than whatever the shipped resolver happens to declare.
+    private static readonly string[] MovieProviders = { "Tmdb", "Imdb" };
+    private static readonly string[] SeriesProviders = { "Tmdb", "Imdb", "Tvdb" };
+
     private static Dictionary<string, string> Ids(params (string Provider, string Id)[] pairs)
     {
         var dict = new Dictionary<string, string>();
@@ -21,7 +28,7 @@ public class InputIdSelectorTests
     [Fact]
     public void Movie_PrefersTmdb_WhenAllPresent()
     {
-        var result = InputIdSelector.Select(ItemLevel.Movie, Ids(("Tmdb", "111"), ("Imdb", "tt222")));
+        var result = InputIdSelector.Select(MovieProviders, Ids(("Tmdb", "111"), ("Imdb", "tt222")));
 
         result.Should().NotBeNull();
         result!.Value.Provider.Should().Be("Tmdb");
@@ -31,7 +38,7 @@ public class InputIdSelectorTests
     [Fact]
     public void Movie_FallsBackToImdb_WhenNoTmdb()
     {
-        var result = InputIdSelector.Select(ItemLevel.Movie, Ids(("Imdb", "tt222")));
+        var result = InputIdSelector.Select(MovieProviders, Ids(("Imdb", "tt222")));
 
         result.Should().NotBeNull();
         result!.Value.Provider.Should().Be("Imdb");
@@ -42,7 +49,7 @@ public class InputIdSelectorTests
     public void Movie_ReturnsNull_WhenOnlyTvdbPresent()
     {
         // Tvdb is not an allowed input provider for movies.
-        var result = InputIdSelector.Select(ItemLevel.Movie, Ids(("Tvdb", "333")));
+        var result = InputIdSelector.Select(MovieProviders, Ids(("Tvdb", "333")));
 
         result.Should().BeNull();
     }
@@ -50,7 +57,7 @@ public class InputIdSelectorTests
     [Fact]
     public void Series_PrefersTmdb_WhenAllPresent()
     {
-        var result = InputIdSelector.Select(ItemLevel.Series, Ids(("Tvdb", "333"), ("Imdb", "tt222"), ("Tmdb", "111")));
+        var result = InputIdSelector.Select(SeriesProviders, Ids(("Tvdb", "333"), ("Imdb", "tt222"), ("Tmdb", "111")));
 
         result.Should().NotBeNull();
         result!.Value.Provider.Should().Be("Tmdb");
@@ -59,16 +66,16 @@ public class InputIdSelectorTests
     [Fact]
     public void Series_FallsBackToImdb_WhenNoTmdb()
     {
-        var result = InputIdSelector.Select(ItemLevel.Series, Ids(("Tvdb", "333"), ("Imdb", "tt222")));
+        var result = InputIdSelector.Select(SeriesProviders, Ids(("Tvdb", "333"), ("Imdb", "tt222")));
 
         result.Should().NotBeNull();
         result!.Value.Provider.Should().Be("Imdb");
     }
 
     [Fact]
-    public void Series_UsesTvdb_WhenOnlyTvdbPresent()
+    public void Series_FallsBackToTvdb_WhenOnlyTvdb()
     {
-        var result = InputIdSelector.Select(ItemLevel.Series, Ids(("Tvdb", "333")));
+        var result = InputIdSelector.Select(SeriesProviders, Ids(("Tvdb", "333")));
 
         result.Should().NotBeNull();
         result!.Value.Provider.Should().Be("Tvdb");
@@ -76,54 +83,21 @@ public class InputIdSelectorTests
     }
 
     [Fact]
-    public void ReturnsNull_WhenNoIds()
+    public void ReturnsNull_WhenNoIdsAtAll()
     {
-        var result = InputIdSelector.Select(ItemLevel.Series, Ids());
-
-        result.Should().BeNull();
+        InputIdSelector.Select(MovieProviders, Ids()).Should().BeNull();
     }
 
     [Fact]
-    public void ReturnsNull_WhenAllIdsBlank()
+    public void ReturnsNull_WhenNoProvidersAllowed()
     {
-        var result = InputIdSelector.Select(ItemLevel.Series, Ids(("Tmdb", ""), ("Imdb", "   ")));
-
-        result.Should().BeNull();
+        InputIdSelector.Select(Array.Empty<string>(), Ids(("Tmdb", "111"))).Should().BeNull();
     }
 
     [Fact]
-    public void HasUnusedAlternatives_True_WhenMoreThanOneAllowedIdPresent()
+    public void ProviderKeysAreCaseInsensitive()
     {
-        var result = InputIdSelector.Select(ItemLevel.Series, Ids(("Tmdb", "111"), ("Tvdb", "333")));
-
-        result.Should().NotBeNull();
-        result!.Value.HasUnusedAlternatives.Should().BeTrue();
-    }
-
-    [Fact]
-    public void HasUnusedAlternatives_False_WhenOnlyChosenPresent()
-    {
-        var result = InputIdSelector.Select(ItemLevel.Series, Ids(("Tmdb", "111")));
-
-        result.Should().NotBeNull();
-        result!.Value.HasUnusedAlternatives.Should().BeFalse();
-    }
-
-    [Fact]
-    public void HasUnusedAlternatives_IgnoresProvidersNotAllowedForLevel()
-    {
-        // Only Imdb present for a movie; Tvdb is not counted (not allowed for movies).
-        var result = InputIdSelector.Select(ItemLevel.Movie, Ids(("Imdb", "tt222"), ("Tvdb", "333")));
-
-        result.Should().NotBeNull();
-        result!.Value.Provider.Should().Be("Imdb");
-        result.Value.HasUnusedAlternatives.Should().BeFalse();
-    }
-
-    [Fact]
-    public void ProviderKeys_AreCaseInsensitive()
-    {
-        var result = InputIdSelector.Select(ItemLevel.Movie, Ids(("tmdb", "111")));
+        var result = InputIdSelector.Select(MovieProviders, Ids(("tmdb", "111")));
 
         result.Should().NotBeNull();
         result!.Value.Provider.Should().Be("Tmdb");
@@ -131,27 +105,84 @@ public class InputIdSelectorTests
     }
 
     [Fact]
-    public void BlankChosenIsSkipped_FallsThroughToNextProvider()
+    public void HasUnusedAlternatives_IsTrue_WhenMoreThanOneAllowedIdPresent()
     {
-        var result = InputIdSelector.Select(ItemLevel.Series, Ids(("Tmdb", "  "), ("Imdb", "tt222")));
+        var result = InputIdSelector.Select(MovieProviders, Ids(("Tmdb", "111"), ("Imdb", "tt222")));
+
+        result!.Value.HasUnusedAlternatives.Should().BeTrue();
+    }
+
+    [Fact]
+    public void HasUnusedAlternatives_IsFalse_WhenOnlyOneAllowedIdPresent()
+    {
+        // Tvdb is present but not allowed for movies, so it is not an "alternative".
+        var result = InputIdSelector.Select(MovieProviders, Ids(("Tmdb", "111"), ("Tvdb", "333")));
+
+        result!.Value.HasUnusedAlternatives.Should().BeFalse();
+    }
+
+    [Fact]
+    public void BlankIdsAreIgnored()
+    {
+        var result = InputIdSelector.Select(SeriesProviders, Ids(("Tmdb", "  "), ("Imdb", "tt222")));
 
         result.Should().NotBeNull();
         result!.Value.Provider.Should().Be("Imdb");
     }
 
-    [Fact]
-    public void Season_IsNotSupported_ReturnsNull()
-    {
-        var result = InputIdSelector.Select(ItemLevel.Season, Ids(("Tmdb", "111"), ("Tvdb", "333")));
+    // --- resolver-driven priority (the capability is the resolver's, not the selector's) ---
 
-        result.Should().BeNull();
+    [Fact]
+    public void PriorityComesFromTheResolver_NotAFixedTable()
+    {
+        // A resolver that only speaks Imdb must pick Imdb even though Tmdb is present and would
+        // win under the mdblist ordering.
+        var resolver = new StubRatingResolver
+        {
+            SupportedInputProviders = new Dictionary<ItemLevel, IReadOnlyList<string>>
+            {
+                [ItemLevel.Movie] = new[] { "Imdb" }
+            }
+        };
+
+        var result = InputIdSelector.Select(resolver, ItemLevel.Movie, Ids(("Tmdb", "111"), ("Imdb", "tt222")));
+
+        result.Should().NotBeNull();
+        result!.Value.Provider.Should().Be("Imdb");
+        result.Value.Id.Should().Be("tt222");
     }
 
     [Fact]
-    public void Episode_IsNotSupported_ReturnsNull()
+    public void LevelTheResolverDoesNotDeclare_ReturnsNull()
     {
-        var result = InputIdSelector.Select(ItemLevel.Episode, Ids(("Tmdb", "111"), ("Tvdb", "333")));
+        var resolver = new StubRatingResolver
+        {
+            SupportedInputProviders = new Dictionary<ItemLevel, IReadOnlyList<string>>
+            {
+                [ItemLevel.Movie] = new[] { "Imdb" }
+            }
+        };
 
-        result.Should().BeNull();
+        InputIdSelector.Select(resolver, ItemLevel.Episode, Ids(("Imdb", "tt222"))).Should().BeNull();
+        InputIdSelector.ProviderPriority(resolver, ItemLevel.Episode).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void EpisodeIsSupported_WhenTheResolverDeclaresIt()
+    {
+        // The dataset resolver declares Episode; the selector must not veto it.
+        var resolver = new StubRatingResolver
+        {
+            SupportedInputProviders = new Dictionary<ItemLevel, IReadOnlyList<string>>
+            {
+                [ItemLevel.Episode] = new[] { "Imdb" }
+            }
+        };
+
+        var result = InputIdSelector.Select(resolver, ItemLevel.Episode, Ids(("Imdb", "tt16364366"), ("Tvdb", "8951947")));
+
+        result.Should().NotBeNull();
+        result!.Value.Provider.Should().Be("Imdb");
+        result.Value.Id.Should().Be("tt16364366");
     }
 }

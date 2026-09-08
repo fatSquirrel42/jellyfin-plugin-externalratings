@@ -56,9 +56,8 @@ public class StatusController : ControllerBase
         return new StatusResponse
         {
             DryRun = config.DryRun,
-            ActiveResolverKey = config.ActiveResolverKey,
-            SupportedLevels = _enrichmentService.GetSupportedLevels(),
             SupportedSources = _enrichmentService.GetSupportedSources(),
+            EnabledLevels = config.EnabledLevels,
             DailyRequestLimit = config.DailyRequestLimit,
             WriteReasonPlan = "B (ItemUpdateType.MetadataEdit)",
             LibrariesWithNfoSaver = librariesWithNfo,

@@ -4,6 +4,7 @@ using FluentAssertions;
 using Jellyfin.Plugin.ExternalRatings;
 using Jellyfin.Plugin.ExternalRatings.Core;
 using Jellyfin.Plugin.ExternalRatings.Resolvers;
+using Jellyfin.Plugin.ExternalRatings.Tests.Fakes;
 using Jellyfin.Data.Enums;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -20,6 +21,38 @@ public class RatingEnrichmentServiceTests
         var resolver = new MdblistResolver(new HttpClient(), string.Empty, NullLogger<MdblistResolver>.Instance);
 
         RatingEnrichmentService.SupportedLevels(resolver).Should().Equal(ItemLevel.Movie, ItemLevel.Series);
+    }
+
+    [Fact]
+    public void SupportedLevels_ImdbDatasetResolver_CoversAllFour()
+    {
+        // The dataset has a rating row per episode, so Episode is a direct lookup; Season has no
+        // row of its own and is aggregated from those episodes.
+        using var datasets = ImdbTestDatasets.Create();
+        var resolver = new ImdbDatasetResolver(
+            datasets.Ratings, datasets.Episodes, NullLogger.Instance);
+
+        RatingEnrichmentService.SupportedLevels(resolver)
+            .Should().Equal(ItemLevel.Movie, ItemLevel.Series, ItemLevel.Season, ItemLevel.Episode);
+    }
+
+    [Fact]
+    public void BuildLibraryQuery_IncludesEpisodeKind_WhenTheResolverSupportsIt()
+    {
+        var query = RatingEnrichmentService.BuildLibraryQuery(
+            new[] { ItemLevel.Movie, ItemLevel.Series, ItemLevel.Episode }, Array.Empty<Guid>());
+
+        query.IncludeItemTypes.Should().Contain(BaseItemKind.Episode);
+    }
+
+    [Fact]
+    public void BuildLibraryQuery_ExcludesVirtualItems()
+    {
+        // Missing-episode placeholders are virtual items. Enumerating them would resolve nothing and,
+        // under the shipped ClearField default, clear a field on an item that has no file at all.
+        var query = RatingEnrichmentService.BuildLibraryQuery(new[] { ItemLevel.Episode }, Array.Empty<Guid>());
+
+        query.IsVirtualItem.Should().BeFalse();
     }
 
     [Fact]

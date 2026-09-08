@@ -6,10 +6,18 @@ commit. For install/first-run see [README.md](README.md); for design rationale s
 
 ## Overview
 
-Jellyfin **10.11.x** server plugin (`net9.0`) that resolves an external community score — initially
-**MyAnimeList** via the [mdblist](https://mdblist.com) API — and writes it into Jellyfin's native
-`CommunityRating`. Plugin GUID `54015a93-7e43-4406-adcf-a15cc251dff1`. Single source project
-(`src/Jellyfin.Plugin.ExternalRatings`) + test project (`tests/…Tests`), both `net9.0`.
+Jellyfin **10.11.x** server plugin (`net9.0`) that resolves an external community score and writes it
+into Jellyfin's native `CommunityRating`. Plugin GUID `54015a93-7e43-4406-adcf-a15cc251dff1`. Single
+source project (`src/Jellyfin.Plugin.ExternalRatings`) + test project (`tests/…Tests`), both `net9.0`.
+
+**Two resolvers, chosen automatically.** `mdblist` (HTTP, keyed, budgeted, batched; Movie+Series,
+nine sources) and `imdb-dataset` (local copies of IMDb's `title.ratings.tsv.gz` and, for season
+scores, `title.episode.tsv.gz`; Movie/Series/Season/Episode, IMDb only, no key or quota). Only the latter reaches episodes —
+mdblist's per-episode data is Supporter-gated. **The user configures only a rating *source*; there
+is no provider setting** (`ActiveResolverKey` was removed). `Core/RatingRouter` picks the resolver
+per item from (source × level × available provider ids). The full evidence and every design
+decision is in [`docs/level-support-diagnosis.md`](docs/level-support-diagnosis.md); read it before
+touching level or matching logic.
 
 ## Build & test commands
 
@@ -72,7 +80,7 @@ The strict ruleset makes several non-obvious things mandatory:
 | `Plugin.cs`, `PluginServiceRegistrator.cs`, `RatingEnrichmentService.cs` (root) | Entry point; DI wiring; **the public facade / composition root** (owns the shared `CircuitBreaker`, caches, `HttpClient`). |
 | `Configuration/` | `PluginConfiguration` (arrays!), `ResolverSetting`, `LibrarySourceSetting`, embedded `configPage.html`. |
 | `Core/` (+ `Core/Abstractions/`) | Host-independent domain: `RatingPipeline` (the §6 decision table), `EnrichmentRunner`, `RatingPrefetcher`, `PluginConfigurationMapper`, `InputIdSelector`, `CircuitBreaker`, `ItemLevel`, `IClock`; seam interfaces (`IItemWriter`, `IRatingCache`, `IBackupStore`). |
-| `Resolvers/` (+ `Mdblist/`) | `IRatingResolver`/`IBatchRatingResolver`, `MdblistResolver`, `RatingSourceInfo` + wire DTOs. |
+| `Resolvers/` (+ `Mdblist/`, `Imdb/`) | `IRatingResolver`/`IBatchRatingResolver`, `MdblistResolver`, `ImdbDatasetResolver`, `RatingSourceInfo` + wire DTOs. `Imdb/ImdbRatingsIndex` and `Imdb/ImdbEpisodeMap` are the pure TSV parses (binary search / dictionary lookup); `Imdb/ImdbDatasetFile` owns download, disk cache, sidecar stamp and refresh for both, wrapped by `Imdb/ImdbRatingsDataset` and `Imdb/ImdbEpisodeDataset`. |
 | `Persistence/` | `FileRatingCache`, `BackupStore`, `DailyRequestCounter`, `ICacheFileStore`. |
 | `Infrastructure/` | `JellyfinItemWriter` (implements `IItemWriter`), `BudgetTrackingHandler`. |
 | `Api/` | `StatusController` (`[Authorize(RequiresElevation)]`) + DTOs. |
@@ -80,11 +88,46 @@ The strict ruleset makes several non-obvious things mandatory:
 
 ## Key patterns
 
-- **Resolver capability drives the UI.** `IRatingResolver.SupportedInputProviders` (presence of a
-  level key = "this level is supported") and `SupportedRatingSources` flow through
-  `RatingEnrichmentService.GetSupportedLevels/GetSupportedSources` → `StatusController` →
-  `configPage.html`, which builds the level/source dropdowns from the endpoint instead of hardcoding
-  them. Add a source/level by extending the resolver, not the UI.
+- **Routing, not configuration.** `Core/RatingRouter` walks an ordered candidate list and returns
+  the first resolver that offers the source, offers the level, and accepts one of the item's ids.
+  The facade owns the order (dataset first — no key, no quota, all four levels; mdblist second) and
+  **omits mdblist entirely when no API key is set**, which is how "no key" becomes "those sources
+  are unreachable" rather than a branch in the router. That order also gives the fallback: an item
+  on `imdb` with no IMDb id but a Tmdb one goes to mdblist.
+- **Resolver capability drives the UI.** `SupportedInputProviders` (presence of a level key = "this
+  level is supported", list order = input-id priority) and `SupportedRatingSources` flow through
+  `RatingEnrichmentService.GetSupportedSources` → `StatusController` → `configPage.html`, which
+  renders the source dropdown, its scale hint and its level coverage from the endpoint. Add a
+  source, level or resolver by extending the resolver side, not the UI.
+- **Processed levels = the opt-in alone.** `RatingEnrichmentService.ProcessedLevels(config)` takes
+  no resolver: the opt-in is global while sources are per-library, so no single source may decide
+  what is enumerated. **Both** the full pass and the realtime path must call it — lesson 8 in
+  `docs/lessons-learned.md` is the regression from those two disagreeing. Season and Episode are
+  off by default (`EnabledLevels`); it is a volume control, not a safety one.
+- **An item with no route is _cleared_, not skipped.** It reaches `RatingPipeline`'s unsupported
+  branch and the shipped `ClearField` default empties the field, so it always shows the configured
+  source or nothing. Enabling Episode on a library whose source has no episode scores therefore
+  clears those episodes. Deliberate, and guarded by tests in `RatingPipelineTests` — do not "fix"
+  it back into a silent skip.
+- **One circuit breaker per resolver**, keyed in `RatingEnrichmentService._breakers` and handed to
+  the pipeline as a lookup. A shared one would let an invalid mdblist key trip it and stop the
+  offline dataset's items too.
+- **Episode matching is by the item's own IMDb id only.** Never by (series, season, episode)
+  position — TheTVDB and IMDb numbering diverge (Futurama from S6 on) and positional matching writes
+  the wrong episode's score with no error. `InheritedProviderIdFilter` drops an id an episode only
+  carries because it came from its series.
+- **A season has no IMDb entry, and its score is _IMDb's_ season — not the episodes on disk.**
+  The members in `RatingWorkItem.MemberInputIds` (only the host knows them) merely *identify*
+  which IMDb `(series, season)` pair this is, by looking their ids up in `ImdbEpisodeMap`. The
+  score is then the unweighted mean, away-from-zero, over every episode **IMDb** lists for that
+  season, so a partially downloaded season still gets the figure IMDb's own page shows.
+  **Never** translate the Jellyfin season number — that is the same positional trap as episodes.
+  Members landing in two IMDb seasons (diverged numbering), or in none (a specials season: IMDb
+  has no season-0 rows at all), are refused rather than guessed. An unavailable episode map is an
+  `Error`, never a `NoMatch` — under `ClearField` a failed 55 MB download would otherwise wipe
+  every season score in the library. `EnsureCoversAsync` (host) filters the map to the series
+  being processed; `GetMapAsync` (resolver) only reads it, because a resolver holding episode ids
+  cannot know their series — that is what the map is for.
 - **Humble Object:** tasks, controllers, and the item writer are thin shells over testable core
   logic behind `Core/Abstractions`. Fakes live in `tests/…/Fakes/`.
 - **Live config reads via `Func<>` accessors + `IClock`/`SystemClock`** (no captured snapshots), so

@@ -34,7 +34,6 @@ public class ConfigRoundtripTests
     {
         var config = new PluginConfiguration();
 
-        config.ActiveResolverKey.Should().Be("mdblist");
         config.RatingSource.Should().Be("none");
         config.CacheTtlDays.Should().Be(7);
         config.NegativeCacheTtlDays.Should().Be(1);
@@ -47,6 +46,45 @@ public class ConfigRoundtripTests
         config.EnabledLibraries.Should().BeEmpty();
         config.LibrarySources.Should().BeEmpty();
         config.ResolverSettings.Should().BeEmpty();
+        config.EnabledLevels.Should().Equal("Movie", "Series");
+        config.ImdbDatasetRefresh.Should().Be("Daily");
+    }
+
+    [Fact]
+    public void ImdbDatasetRefresh_SurvivesARoundtrip()
+    {
+        // Enum-as-string, like NoMatchBehavior: the config stores the member name.
+        Roundtrip(new PluginConfiguration { ImdbDatasetRefresh = "Never" })
+            .ImdbDatasetRefresh.Should().Be("Never");
+    }
+
+    [Fact]
+    public void EnabledLevels_SurviveARoundtripWithoutDuplicating()
+    {
+        // The array-not-List rule: XmlSerializer appends to a pre-initialised List, so a defaulted
+        // collection comes back doubled. EnabledLevels ships with a non-empty default, which is
+        // exactly the shape that trips it.
+        var result = Roundtrip(new PluginConfiguration());
+
+        result.EnabledLevels.Should().Equal("Movie", "Series");
+    }
+
+    [Fact]
+    public void EnabledLevels_RoundtripAnExplicitSelection()
+    {
+        var result = Roundtrip(new PluginConfiguration { EnabledLevels = new[] { "Movie", "Series", "Episode" } });
+
+        result.EnabledLevels.Should().Equal("Movie", "Series", "Episode");
+    }
+
+    [Fact]
+    public void EnabledLevels_AnEmptySelectionStaysEmpty()
+    {
+        // "Process nothing" must survive; coming back as the default would re-enable writes the
+        // user turned off.
+        var result = Roundtrip(new PluginConfiguration { EnabledLevels = Array.Empty<string>() });
+
+        result.EnabledLevels.Should().BeEmpty();
     }
 
     [Fact]
@@ -69,7 +107,6 @@ public class ConfigRoundtripTests
                 Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 Guid.Parse("22222222-2222-2222-2222-222222222222")
             },
-            ActiveResolverKey = "mdblist",
             RatingSource = "imdb",
             LibrarySources = new[]
             {

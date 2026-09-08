@@ -22,6 +22,9 @@ namespace Jellyfin.Plugin.ExternalRatings.Resolvers;
 /// </summary>
 internal sealed class MdblistResolver : IBatchRatingResolver
 {
+    /// <summary>The stable configuration key that selects this resolver.</summary>
+    public const string ResolverKey = "mdblist";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -60,7 +63,7 @@ internal sealed class MdblistResolver : IBatchRatingResolver
     }
 
     /// <inheritdoc />
-    public string Key => "mdblist";
+    public string Key => ResolverKey;
 
     /// <inheritdoc />
     public string DisplayName => "mdblist";
@@ -69,11 +72,13 @@ internal sealed class MdblistResolver : IBatchRatingResolver
     public int MaxBatchSize => 200;
 
     /// <inheritdoc />
-    public IReadOnlyDictionary<ItemLevel, IReadOnlyCollection<string>> SupportedInputProviders { get; } =
-        new Dictionary<ItemLevel, IReadOnlyCollection<string>>
+    public IReadOnlyDictionary<ItemLevel, IReadOnlyList<string>> SupportedInputProviders { get; } =
+        new Dictionary<ItemLevel, IReadOnlyList<string>>
         {
-            [ItemLevel.Movie] = InputIdSelector.ProviderPriority(ItemLevel.Movie),
-            [ItemLevel.Series] = InputIdSelector.ProviderPriority(ItemLevel.Series)
+            // Descending priority. Season/Episode are absent on purpose: mdblist exposes no
+            // per-episode scores on the free tier (see docs/level-support-diagnosis.md §1).
+            [ItemLevel.Movie] = new[] { "Tmdb", "Imdb" },
+            [ItemLevel.Series] = new[] { "Tmdb", "Imdb", "Tvdb" }
         };
 
     /// <inheritdoc />

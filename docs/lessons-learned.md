@@ -75,12 +75,31 @@ would not. The realtime path must apply the same `SupportedLevels()` filter as `
 A/B test against the unfixed build cleared an episode's rating outright (8 → null, outcome `Cleared`),
 because without it `UnsupportedLevelBehavior=ClearField` treats every Episode as an unsupported level.
 
-## 9. A cleared rating gets refilled, and `0` is not a portable "no rating"
-`ClearField` writes `null`, but Jellyfin repopulates empty fields on the next remote metadata fetch —
-`if (replaceData || !target.CommunityRating.HasValue)` — even on a normal, non-replace refresh. So
-clear → refill → clear is a slow perpetual loop, paced by the library's "automatically refresh metadata
-from the internet" setting. Writing `0` instead breaks it (a `0` *has* a value, so nothing refills it), but
-`0` is not portable: jellyfin-web hides it only because JS treats `0` as falsy (`if (item.CommunityRating)`),
+## 9. A cleared rating is refilled only by a *full* refresh — not by scans — and `0` is not portable
+The merge is `if (replaceData || !target.CommunityRating.HasValue)`, so a remote fetch does refill an
+empty field. The earlier claim derived from that line — "even on a normal, non-replace refresh … a slow
+perpetual loop" — was code-reading, never measured, and **measuring it refutes the part that mattered.**
+Measured on the test instance (2026-09-07, `EnableInternetProviders=true`, TheMovieDb+TheTVDB as Episode
+fetchers, one episode that TMDb rates 6.833):
+
+| trigger | cleared → refilled? |
+| --- | --- |
+| `metadataRefreshMode=Default`, `replaceAllMetadata=false` | **no** |
+| `Scan Media Library` scheduled task | **no** |
+| `metadataRefreshMode=FullRefresh`, `replaceAllMetadata=false` | **yes** (6.833 returns) |
+| any of the above with `EnableInternetProviders=false` | no |
+
+So the recurring paths — the library scan and ordinary refreshes — leave a cleared rating cleared. Only a
+*full* metadata refresh refills it: a deliberate "refresh metadata / search for missing metadata", or the
+library's `AutomaticRefreshIntervalDays > 0` (untested here — it cannot be exercised without waiting out
+the interval, but it drives a full remote refresh, so assume it refills). The test instance has that
+interval at `0` and internet providers off, so the loop cannot occur there at all.
+
+This matters most at episode scale, where `ClearField` touches orders of magnitude more items than at
+movie scale: the clear is a one-off, not a per-run treadmill.
+
+The sentinel question is unchanged. Writing `0` would also stop a refill (a `0` *has* a value), but `0`
+is not portable: jellyfin-web hides it only because JS treats `0` as falsy (`if (item.CommunityRating)`),
 while Wholphin uses Kotlin null-checks — `communityRating?.let { ... }` runs for `0f` and renders "0.0 ★".
 Jellyfin's NFO saver writes `<rating>0</rating>` for the same reason (`HasValue`). Only `null` reads as
-"unknown" everywhere; every sentinel leaks into some client. Decision: keep `null` and accept the loop.
+"unknown" everywhere. Decision: keep `null`.

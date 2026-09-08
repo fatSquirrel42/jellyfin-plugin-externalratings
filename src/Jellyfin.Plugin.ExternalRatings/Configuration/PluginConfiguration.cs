@@ -39,10 +39,36 @@ public class PluginConfiguration : BasePluginConfiguration
     public ResolverSetting[] ResolverSettings { get; set; } = Array.Empty<ResolverSetting>();
 #pragma warning restore CA1819
 
+#pragma warning disable CA1819 // Properties should not return arrays - XmlSerializer needs a settable array here.
     /// <summary>
-    /// Gets or sets the key of the active resolver.
+    /// Gets or sets the item levels to process, by name (<c>Movie</c>, <c>Series</c>, <c>Season</c>,
+    /// <c>Episode</c>).
     /// </summary>
-    public string ActiveResolverKey { get; set; } = "mdblist";
+    /// <remarks>
+    /// <para>
+    /// Season and Episode are off by default. This is a volume control, not a safety one: a TV
+    /// library has one to two orders of magnitude more episodes than series, and an existing
+    /// install must not start writing thousands of items because it was upgraded. An empty array
+    /// means "process nothing" and is deliberately distinct from the default.
+    /// </para>
+    /// <para>
+    /// The choice is global while rating sources are per-library, so a level enabled here is
+    /// enumerated everywhere. An item whose source has no score at its level is then *cleared*
+    /// under the shipped <see cref="UnsupportedLevelBehavior"/> default, not skipped — the field
+    /// shows the configured source or nothing.
+    /// </para>
+    /// </remarks>
+    public string[] EnabledLevels { get; set; } = { "Movie", "Series" };
+#pragma warning restore CA1819
+
+    /// <summary>
+    /// Gets or sets how often the local copies of IMDb's datasets are re-downloaded:
+    /// <c>Daily</c>, <c>Weekly</c>, <c>Monthly</c> or <c>Never</c>. It governs both files —
+    /// <c>title.ratings</c> (~8.6 MB) and <c>title.episode</c> (~54.6 MB, needed for season
+    /// scores). IMDb regenerates them once a day, so nothing below daily would help.
+    /// <c>Never</c> keeps the copies that are there and still fetches one when none exists.
+    /// </summary>
+    public string ImdbDatasetRefresh { get; set; } = "Daily";
 
     /// <summary>
     /// Gets or sets the default external rating source used for libraries without a

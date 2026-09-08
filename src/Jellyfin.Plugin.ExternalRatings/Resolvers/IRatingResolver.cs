@@ -16,8 +16,12 @@ internal interface IRatingResolver
     /// <summary>Gets the human-readable display name.</summary>
     string DisplayName { get; }
 
-    /// <summary>Gets the input providers this resolver supports, per item level.</summary>
-    IReadOnlyDictionary<ItemLevel, IReadOnlyCollection<string>> SupportedInputProviders { get; }
+    /// <summary>
+    /// Gets the input providers this resolver supports, per item level, each list in descending
+    /// priority order. Presence of a level key is the resolver's "I support this level" flag, and
+    /// the list order is what <see cref="Core.InputIdSelector"/> picks by.
+    /// </summary>
+    IReadOnlyDictionary<ItemLevel, IReadOnlyList<string>> SupportedInputProviders { get; }
 
     /// <summary>Gets the external rating sources this resolver can return (its selectable-source capability).</summary>
     IReadOnlyCollection<RatingSourceInfo> SupportedRatingSources { get; }

@@ -37,6 +37,7 @@ public class RatingPrefetcherTests
             Counter = new DailyRequestCounter(Clock);
             Prefetcher = new RatingPrefetcher(
                 resolver,
+                _ => true,
                 Cache,
                 Clock,
                 Breaker,

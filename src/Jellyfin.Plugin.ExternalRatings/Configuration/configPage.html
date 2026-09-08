@@ -17,19 +17,33 @@
 
                     <div id="nfoWarning" class="fieldDescription" style="display:none;padding:0.6em;margin-bottom:1em;background:#6a1b1b;color:#fff;border-radius:4px;"></div>
 
-                    <h2>Connection</h2>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="MdblistApiKey">mdblist API key</label>
-                        <input id="MdblistApiKey" name="MdblistApiKey" type="password" is="emby-input" autocomplete="off" />
-                        <div class="fieldDescription">Stored in plaintext in the plugin configuration file (server file permissions apply).</div>
-                    </div>
-
                     <h2>Rating source</h2>
                     <div class="selectContainer">
                         <label class="selectLabel" for="RatingSource">Default rating source</label>
                         <select is="emby-select" id="RatingSource" name="RatingSource" class="emby-select-withcolor emby-select"></select>
-                        <div id="ratingSourceHint" class="fieldDescription" style="display:none;"></div>
+                        <div id="ratingSourceHint" class="fieldDescription"></div>
                     </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MdblistApiKey">mdblist API key</label>
+                        <input id="MdblistApiKey" name="MdblistApiKey" type="password" is="emby-input" autocomplete="off" />
+                        <div class="fieldDescription">Unlocks every source except IMDb, which is read from a local copy of IMDb&rsquo;s own ratings file and needs no key. Free tier: 1000 requests a day. Stored in plaintext in the plugin configuration file (server file permissions apply).</div>
+                    </div>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="ImdbDatasetRefresh">IMDb dataset refresh</label>
+                        <select is="emby-select" id="ImdbDatasetRefresh" name="ImdbDatasetRefresh" class="emby-select-withcolor emby-select">
+                            <option value="Daily">Daily</option>
+                            <option value="Weekly">Weekly</option>
+                            <option value="Monthly">Monthly</option>
+                            <option value="Never">Never &mdash; keep the current copy</option>
+                        </select>
+                        <div class="fieldDescription">Governs both files the IMDb source needs: the ratings list (~9&nbsp;MB) and, for season scores, the episode list (~55&nbsp;MB). IMDb regenerates them once a day, so nothing below daily helps. &ldquo;Never&rdquo; stops re-downloading but still fetches each file once if it is not there yet.</div>
+                    </div>
+
+                    <h2>Item levels</h2>
+                    <div class="fieldDescription">Which kinds of item to write ratings for. This applies to every enabled library. If a library&rsquo;s source has no score at one of these levels, those items are <em>cleared</em> rather than left alone &mdash; the field shows the configured source or nothing.</div>
+                    <div id="enabledLevels"></div>
 
                     <h2>Libraries</h2>
                     <div class="fieldDescription">Select the libraries this plugin is enabled for. Optionally pick a rating source per library; libraries left on &ldquo;(Use default)&rdquo; use the default source above.</div>
@@ -127,8 +141,59 @@
                 // endpoint (see loadConfig) rather than hardcoded here. Each entry is { Key, DisplayName,
                 // Scale, Rescaled }; `Rescaled` marks sources whose native scale differs from Jellyfin's
                 // 0–10, so the UI can warn that the value is converted.
+                // The selectable sources come from the Status endpoint, each carrying the item
+                // levels some backend can serve it at. There is no provider to choose: the plugin
+                // routes per item from (source × level × available ids).
                 var sources = [];
                 var page;
+
+                var allLevels = ['Movie', 'Series', 'Season', 'Episode'];
+                var levelPlurals = { Movie: 'movies', Series: 'series', Season: 'seasons', Episode: 'episodes' };
+
+                // "movies, series and episodes" rather than a bare comma list.
+                function levelPhrase(levels) {
+                    var words = levels.map(function (l) { return levelPlurals[l] || l.toLowerCase(); });
+                    if (words.length <= 1) {
+                        return words.join('');
+                    }
+                    return words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1];
+                }
+
+                function selectedLevels() {
+                    var out = [];
+                    page.querySelectorAll('.levelCheckbox').forEach(function (el) {
+                        if (el.checked) {
+                            out.push(el.getAttribute('data-level'));
+                        }
+                    });
+                    return out;
+                }
+
+                // Every level stays checkable. The choice is global while sources are per-library,
+                // so no single source may grey one out — and a level a library's source cannot
+                // serve is cleared there, which the hint below spells out.
+                function renderLevels(enabled) {
+                    var host = page.querySelector('#enabledLevels');
+                    host.innerHTML = '';
+                    allLevels.forEach(function (level) {
+                        var row = document.createElement('div');
+                        row.className = 'checkboxContainer';
+                        var label = document.createElement('label');
+                        label.className = 'emby-checkbox-label';
+                        var input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.setAttribute('is', 'emby-checkbox');
+                        input.className = 'levelCheckbox';
+                        input.setAttribute('data-level', level);
+                        input.checked = enabled.indexOf(level) >= 0;
+                        var span = document.createElement('span');
+                        span.textContent = level;
+                        label.appendChild(input);
+                        label.appendChild(span);
+                        row.appendChild(label);
+                        host.appendChild(row);
+                    });
+                }
 
                 function sourceByValue(value) {
                     for (var i = 0; i < sources.length; i++) {
@@ -143,11 +208,39 @@
                     if (value === 'none') {
                         return 'Community ratings are left unchanged, except for libraries that select their own source below.';
                     }
+
                     var s = sourceByValue(value);
-                    if (!s || !s.Rescaled) {
+                    if (!s) {
                         return '';
                     }
-                    return s.DisplayName + ' uses a ' + s.Scale + ' scale; ratings are converted to Jellyfin’s 0–10.';
+
+                    var parts = [];
+                    if (s.Rescaled) {
+                        parts.push(s.DisplayName + ' uses a ' + s.Scale + ' scale; ratings are converted to Jellyfin’s 0–10.');
+                    }
+
+                    var levels = s.Levels || [];
+                    parts.push(s.DisplayName + ' covers ' + levelPhrase(levels) + '.');
+
+                    // Name the consequence rather than leaving it to be discovered on a first run.
+                    var missing = allLevels.filter(function (l) { return levels.indexOf(l) < 0; });
+                    if (missing.length) {
+                        parts.push('It has no ' + levelPhrase(missing)
+                            + ' scores, so those items are cleared in a library using it.');
+                    }
+
+                    if (s.RequiresApiKey) {
+                        parts.push('Needs the mdblist API key.');
+                    }
+
+                    return parts.join(' ');
+                }
+
+                function updateSourceHint() {
+                    var hint = page.querySelector('#ratingSourceHint');
+                    var text = sourceHintText(page.querySelector('#RatingSource').value);
+                    hint.textContent = text;
+                    hint.style.display = text ? '' : 'none';
                 }
 
                 function fillSourceOptions(selectEl, includeDefaultOption) {
@@ -294,12 +387,10 @@
                         var folders = results[1];
                         var status = results[2];
 
-                        // The selectable rating sources come from the active resolver's capability, so the
-                        // dropdowns must be populated from the status response before rendering them.
                         sources = status.SupportedSources || [];
 
-                        renderLibraries(config, folders);
                         page.querySelector('#MdblistApiKey').value = getResolverSetting(config, apiKeyName);
+                        page.querySelector('#ImdbDatasetRefresh').value = config.ImdbDatasetRefresh || 'Daily';
 
                         var ratingSourceSelect = page.querySelector('#RatingSource');
                         fillSourceOptions(ratingSourceSelect, false);
@@ -309,10 +400,10 @@
                         noneOpt.textContent = '(Don’t set community rating)';
                         ratingSourceSelect.insertBefore(noneOpt, ratingSourceSelect.firstChild);
                         ratingSourceSelect.value = config.RatingSource || 'none';
-                        var ratingSourceHint = page.querySelector('#ratingSourceHint');
-                        var defaultHint = sourceHintText(ratingSourceSelect.value);
-                        ratingSourceHint.textContent = defaultHint;
-                        ratingSourceHint.style.display = defaultHint ? '' : 'none';
+                        updateSourceHint();
+
+                        renderLevels(config.EnabledLevels || []);
+                        renderLibraries(config, folders);
 
                         page.querySelector('#NoMatchBehavior').value = config.NoMatchBehavior;
                         page.querySelector('#UnsupportedLevelBehavior').value = config.UnsupportedLevelBehavior;
@@ -353,6 +444,9 @@
                         config.LibrarySources = librarySources;
 
                         setResolverSetting(config, apiKeyName, page.querySelector('#MdblistApiKey').value);
+
+                        config.EnabledLevels = selectedLevels();
+                        config.ImdbDatasetRefresh = page.querySelector('#ImdbDatasetRefresh').value;
 
                         config.NoMatchBehavior = page.querySelector('#NoMatchBehavior').value;
                         config.UnsupportedLevelBehavior = page.querySelector('#UnsupportedLevelBehavior').value;
@@ -436,12 +530,8 @@
                         return false;
                     });
 
-                document.querySelector('#RatingSource').addEventListener('change', function () {
-                    var hintEl = page.querySelector('#ratingSourceHint');
-                    var text = sourceHintText(this.value);
-                    hintEl.textContent = text;
-                    hintEl.style.display = text ? '' : 'none';
-                });
+                document.querySelector('#RatingSource').addEventListener('change', updateSourceHint);
+
 
                 document.querySelector('#RunNowButton').addEventListener('click', runNow);
                 document.querySelector('#RestoreAllButton').addEventListener('click', restoreAll);

@@ -180,4 +180,35 @@ public class PluginConfigurationMapperTests
 
         PluginConfigurationMapper.GetResolverSetting(config, "mdblist.apiKey").Should().BeNull();
     }
+
+    // --- IMDb dataset refresh interval (enum-as-string, like the behaviour settings) ---
+
+    [Fact]
+    public void ToDatasetRefreshInterval_MapsEveryChoice()
+    {
+        Interval("Daily").Should().Be(TimeSpan.FromDays(1));
+        Interval("Weekly").Should().Be(TimeSpan.FromDays(7));
+        Interval("Monthly").Should().Be(TimeSpan.FromDays(30));
+
+        // Zero is what ImdbRatingsDataset.IsStale reads as "do not re-download".
+        Interval("Never").Should().Be(TimeSpan.Zero);
+    }
+
+    [Fact]
+    public void ToDatasetRefreshInterval_UnknownValueFallsBackToDaily()
+    {
+        Interval("garbage").Should().Be(TimeSpan.FromDays(1));
+        Interval(string.Empty).Should().Be(TimeSpan.FromDays(1));
+    }
+
+    [Fact]
+    public void ToDatasetRefreshInterval_IsCaseInsensitive()
+    {
+        Interval("weekly").Should().Be(TimeSpan.FromDays(7));
+        Interval("NEVER").Should().Be(TimeSpan.Zero);
+    }
+
+    private static TimeSpan Interval(string configured)
+        => PluginConfigurationMapper.ToDatasetRefreshInterval(
+            new PluginConfiguration { ImdbDatasetRefresh = configured });
 }
