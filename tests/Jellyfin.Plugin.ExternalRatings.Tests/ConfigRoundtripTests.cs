@@ -47,8 +47,15 @@ public class ConfigRoundtripTests
         config.LibrarySources.Should().BeEmpty();
         config.ResolverSettings.Should().BeEmpty();
         config.EnabledLevels.Should().Equal("Movie", "Series");
-        config.ImdbDatasetRefreshHours.Should().Be(24);
-        config.SeasonMinimumCoveragePercent.Should().Be(50);
+        config.ImdbDatasetRefresh.Should().Be("Daily");
+    }
+
+    [Fact]
+    public void ImdbDatasetRefresh_SurvivesARoundtrip()
+    {
+        // Enum-as-string, like NoMatchBehavior: the config stores the member name.
+        Roundtrip(new PluginConfiguration { ImdbDatasetRefresh = "Never" })
+            .ImdbDatasetRefresh.Should().Be("Never");
     }
 
     [Fact]

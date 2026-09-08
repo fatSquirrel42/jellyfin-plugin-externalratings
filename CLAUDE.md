@@ -117,8 +117,11 @@ The strict ruleset makes several non-obvious things mandatory:
   the wrong episode's score with no error. `InheritedProviderIdFilter` drops an id an episode only
   carries because it came from its series.
 - **A season has no IMDb entry.** Its score is aggregated by `SeasonRatingAggregator` from the
-  episodes the library holds (unweighted mean, away-from-zero, minimum-coverage gate), fed through
-  `RatingWorkItem.MemberInputIds` because only the host knows the members.
+  episodes the library holds — unweighted mean, away-from-zero, and **all-or-nothing**: every
+  episode must have resolved or there is no season score. IMDb rates every aired episode, so a
+  gap is an unmatched episode, not an unrated one. Members arrive through
+  `RatingWorkItem.MemberInputIds` (one entry per episode, blank where it has no id — the count
+  is the season's episode total) because only the host knows them.
 - **Humble Object:** tasks, controllers, and the item writer are thin shells over testable core
   logic behind `Core/Abstractions`. Fakes live in `tests/…/Fakes/`.
 - **Live config reads via `Func<>` accessors + `IClock`/`SystemClock`** (no captured snapshots), so

@@ -21,27 +21,28 @@ namespace Jellyfin.Plugin.ExternalRatings.Core;
 /// positional guess that was rejected for episodes, and averaging IMDb's members would describe a
 /// season the user does not have.
 /// </para>
+/// <para>
+/// It is all-or-nothing. IMDb rates every episode that has aired, so a member without a score is
+/// an *unmatched* episode rather than an unrated one, and an average over the remainder would
+/// quietly describe a different season than the one being written to. This replaced a configurable
+/// coverage threshold that could not do the job: it counted only episodes that already had an IMDb
+/// id, so a season with 2 of 12 matched reported 100 % coverage and got a two-episode "average".
+/// </para>
 /// </remarks>
 internal static class SeasonRatingAggregator
 {
-    /// <summary>Averages the resolved episode scores, subject to a minimum coverage.</summary>
+    /// <summary>Averages the episode scores, but only if every episode of the season resolved.</summary>
     /// <param name="memberRatings">The scores that resolved, on Jellyfin's 0–10 scale.</param>
-    /// <param name="memberCount">How many episodes the season has (resolved or not).</param>
-    /// <param name="minimumCoveragePercent">
-    /// The share of the season's episodes that must have resolved, 0–100. Guards against a season
-    /// where one or two stray episodes resolved: their mean describes them, not the season.
+    /// <param name="memberCount">
+    /// How many episodes the season holds — every non-virtual episode, matched or not. Unaired
+    /// episodes are virtual items and are never counted, so an airing season is judged complete on
+    /// the episodes it actually has.
     /// </param>
     /// <returns>The mean rounded to one decimal, or <see langword="null"/> if it should not be written.</returns>
-    public static float? Average(IReadOnlyList<float> memberRatings, int memberCount, int minimumCoveragePercent)
+    public static float? Average(IReadOnlyList<float> memberRatings, int memberCount)
     {
-        if (memberRatings.Count == 0)
-        {
-            return null;
-        }
-
-        // A miscounted member set must not reject a perfectly good average.
-        var total = Math.Max(memberCount, memberRatings.Count);
-        if (minimumCoveragePercent > 0 && memberRatings.Count * 100 < minimumCoveragePercent * total)
+        // Zero of zero is vacuously complete; an empty season must still produce nothing.
+        if (memberCount <= 0 || memberRatings.Count != memberCount)
         {
             return null;
         }

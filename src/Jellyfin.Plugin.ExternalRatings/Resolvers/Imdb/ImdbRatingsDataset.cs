@@ -114,6 +114,13 @@ internal sealed class ImdbRatingsDataset : IDisposable
         _gate.Dispose();
     }
 
+    /// <summary>Whether the cached copy should be re-downloaded before use.</summary>
+    /// <remarks>
+    /// A missing copy is always stale, checked *before* the interval: an interval of zero (the
+    /// configuration's <c>Never</c>) means "never re-download", not "never download" — with no
+    /// file at all the resolver would have nothing to answer with.
+    /// </remarks>
+    /// <returns><see langword="true"/> when a download should be attempted.</returns>
     private bool IsStale()
     {
         var downloadedAt = DownloadedAtUtc();

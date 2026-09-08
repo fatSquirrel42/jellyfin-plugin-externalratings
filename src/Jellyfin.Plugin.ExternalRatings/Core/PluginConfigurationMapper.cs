@@ -75,6 +75,29 @@ internal static class PluginConfigurationMapper
         return ordered;
     }
 
+    /// <summary>
+    /// How long a downloaded copy of the IMDb dataset stays fresh, from
+    /// <see cref="PluginConfiguration.ImdbDatasetRefresh"/>.
+    /// </summary>
+    /// <param name="config">The plugin configuration.</param>
+    /// <returns>
+    /// The interval; <see cref="TimeSpan.Zero"/> for <c>Never</c>, which
+    /// <c>ImdbRatingsDataset.IsStale</c> reads as "do not re-download" — it still fetches when no
+    /// copy exists at all. An unrecognised value falls back to daily.
+    /// </returns>
+    public static TimeSpan ToDatasetRefreshInterval(PluginConfiguration config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        return ParseEnum(config.ImdbDatasetRefresh, ImdbDatasetRefreshInterval.Daily) switch
+        {
+            ImdbDatasetRefreshInterval.Weekly => TimeSpan.FromDays(7),
+            ImdbDatasetRefreshInterval.Monthly => TimeSpan.FromDays(30),
+            ImdbDatasetRefreshInterval.Never => TimeSpan.Zero,
+            _ => TimeSpan.FromDays(1)
+        };
+    }
+
     /// <summary>Whether the resolved source means enrichment should be skipped.</summary>
     /// <param name="source">A source returned by <see cref="ResolveSource"/>.</param>
     /// <returns><see langword="true"/> for the <see cref="NoSource"/> sentinel or a blank value.</returns>

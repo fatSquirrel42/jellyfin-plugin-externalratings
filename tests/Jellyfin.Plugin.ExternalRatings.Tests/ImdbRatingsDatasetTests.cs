@@ -127,6 +127,37 @@ public sealed class ImdbRatingsDatasetTests : IDisposable
     }
 
     [Fact]
+    public async Task AZeroInterval_NeverRedownloads()
+    {
+        // The configuration's "Never". Once a copy exists it is kept no matter how much time
+        // passes.
+        var handler = Serves(Gzip(Tsv(("tt0000100", "6.0"))));
+        var clock = new FakeClock();
+        using var dataset = Create(handler, clock, TimeSpan.Zero);
+
+        (await dataset.GetIndexAsync(CancellationToken.None)).Count.Should().Be(1);
+        clock.Advance(TimeSpan.FromDays(3650));
+        (await dataset.GetIndexAsync(CancellationToken.None)).Count.Should().Be(1);
+
+        handler.Requests.Should().ContainSingle("the first fetch, and never again");
+    }
+
+    [Fact]
+    public async Task AZeroInterval_StillFetchesWhenNothingIsCached()
+    {
+        // "Never" means never *re*-download. With no file at all the resolver would have nothing
+        // to answer with, so the first fetch must still happen.
+        var handler = Serves(Gzip(Tsv(("tt0000100", "6.0"))));
+        var clock = new FakeClock();
+        using var dataset = Create(handler, clock, TimeSpan.Zero);
+
+        var index = await dataset.GetIndexAsync(CancellationToken.None);
+
+        index.Count.Should().Be(1);
+        handler.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task FailedRefresh_KeepsServingTheCachedCopy()
     {
         var payload = Gzip(Tsv(("tt0000100", "6.0")));

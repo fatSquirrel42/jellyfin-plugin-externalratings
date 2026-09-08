@@ -30,16 +30,15 @@
                         <div class="fieldDescription">Unlocks every source except IMDb, which is read from a local copy of IMDb&rsquo;s own ratings file and needs no key. Free tier: 1000 requests a day. Stored in plaintext in the plugin configuration file (server file permissions apply).</div>
                     </div>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="ImdbDatasetRefreshHours">IMDb dataset refresh (hours)</label>
-                        <input id="ImdbDatasetRefreshHours" name="ImdbDatasetRefreshHours" type="number" min="0" step="1" is="emby-input" />
-                        <div class="fieldDescription">IMDb regenerates its ratings file once a day, so there is nothing to gain below 24. The download is roughly 9&nbsp;MB. 0 disables refreshing.</div>
-                    </div>
-
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="SeasonMinimumCoveragePercent">Season minimum coverage (%)</label>
-                        <input id="SeasonMinimumCoveragePercent" name="SeasonMinimumCoveragePercent" type="number" min="0" max="100" step="1" is="emby-input" />
-                        <div class="fieldDescription">A season&rsquo;s rating is the average of its episodes. This is the share of them that must resolve before that average is written &mdash; it stops one or two stray episodes from standing in for a whole season.</div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="ImdbDatasetRefresh">IMDb dataset refresh</label>
+                        <select is="emby-select" id="ImdbDatasetRefresh" name="ImdbDatasetRefresh" class="emby-select-withcolor emby-select">
+                            <option value="Daily">Daily</option>
+                            <option value="Weekly">Weekly</option>
+                            <option value="Monthly">Monthly</option>
+                            <option value="Never">Never &mdash; keep the current copy</option>
+                        </select>
+                        <div class="fieldDescription">IMDb regenerates its ratings file once a day, so nothing below daily helps. The download is roughly 9&nbsp;MB. &ldquo;Never&rdquo; stops re-downloading but still fetches the file once if none is there yet.</div>
                     </div>
 
                     <h2>Item levels</h2>
@@ -391,8 +390,7 @@
                         sources = status.SupportedSources || [];
 
                         page.querySelector('#MdblistApiKey').value = getResolverSetting(config, apiKeyName);
-                        page.querySelector('#ImdbDatasetRefreshHours').value = config.ImdbDatasetRefreshHours;
-                        page.querySelector('#SeasonMinimumCoveragePercent').value = config.SeasonMinimumCoveragePercent;
+                        page.querySelector('#ImdbDatasetRefresh').value = config.ImdbDatasetRefresh || 'Daily';
 
                         var ratingSourceSelect = page.querySelector('#RatingSource');
                         fillSourceOptions(ratingSourceSelect, false);
@@ -448,8 +446,7 @@
                         setResolverSetting(config, apiKeyName, page.querySelector('#MdblistApiKey').value);
 
                         config.EnabledLevels = selectedLevels();
-                        config.ImdbDatasetRefreshHours = parseInt(page.querySelector('#ImdbDatasetRefreshHours').value, 10);
-                        config.SeasonMinimumCoveragePercent = parseInt(page.querySelector('#SeasonMinimumCoveragePercent').value, 10);
+                        config.ImdbDatasetRefresh = page.querySelector('#ImdbDatasetRefresh').value;
 
                         config.NoMatchBehavior = page.querySelector('#NoMatchBehavior').value;
                         config.UnsupportedLevelBehavior = page.querySelector('#UnsupportedLevelBehavior').value;

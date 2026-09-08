@@ -11,8 +11,11 @@ namespace Jellyfin.Plugin.ExternalRatings.Resolvers;
 /// <param name="InputId">The provider-specific id value.</param>
 /// <param name="TargetSource">The external rating source to resolve (e.g. myanimelist).</param>
 /// <param name="MemberInputIds">
-/// For a Season, the input ids of its episodes; <see langword="null"/> otherwise. Resolvers that
-/// aggregate a season from its episodes read this instead of <paramref name="InputId"/>.
+/// For a Season, one entry per episode it holds — the episode's input id, or an empty string
+/// where the episode has none. <see langword="null"/> at every other level. Resolvers that
+/// aggregate a season read this instead of <paramref name="InputId"/>, and the *count* is the
+/// season's episode total, which is what makes an unmatched episode fail completeness rather
+/// than silently shrink the set.
 /// </param>
 internal sealed record RatingRequest(
     ItemLevel Level,

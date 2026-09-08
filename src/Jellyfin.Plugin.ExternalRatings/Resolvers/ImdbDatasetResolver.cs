@@ -46,18 +46,12 @@ internal sealed class ImdbDatasetResolver : IRatingResolver
     private static readonly string[] ImdbOnly = { "Imdb" };
 
     private readonly ImdbRatingsDataset _dataset;
-    private readonly Func<int> _seasonMinimumCoveragePercent;
 
     /// <summary>Initializes a new instance of the <see cref="ImdbDatasetResolver"/> class.</summary>
     /// <param name="dataset">The locally cached dataset.</param>
-    /// <param name="seasonMinimumCoveragePercent">
-    /// Accessor for the share of a season's episodes that must resolve before its average is used.
-    /// Read per request so a config change applies without a restart.
-    /// </param>
-    public ImdbDatasetResolver(ImdbRatingsDataset dataset, Func<int>? seasonMinimumCoveragePercent = null)
+    public ImdbDatasetResolver(ImdbRatingsDataset dataset)
     {
         _dataset = dataset;
-        _seasonMinimumCoveragePercent = seasonMinimumCoveragePercent ?? (static () => 50);
     }
 
     /// <inheritdoc />
@@ -124,6 +118,8 @@ internal sealed class ImdbDatasetResolver : IRatingResolver
     /// <returns>The aggregated result.</returns>
     private RatingResult ResolveSeason(RatingRequest request, ImdbRatingsIndex index)
     {
+        // One entry per episode the season holds; an episode with no id of its own is a blank,
+        // which cannot resolve and therefore fails the completeness rule below.
         var members = request.MemberInputIds;
         if (members is null || members.Count == 0)
         {
@@ -139,7 +135,7 @@ internal sealed class ImdbDatasetResolver : IRatingResolver
             }
         }
 
-        var average = SeasonRatingAggregator.Average(found, members.Count, _seasonMinimumCoveragePercent());
+        var average = SeasonRatingAggregator.Average(found, members.Count);
         return average is float score ? RatingResult.ForScore(score) : RatingResult.NoMatch();
     }
 }

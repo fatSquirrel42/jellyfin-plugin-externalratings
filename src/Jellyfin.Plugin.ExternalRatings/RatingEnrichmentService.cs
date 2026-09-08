@@ -36,8 +36,6 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
 {
     private const string ApiKeySettingKey = "mdblist.apiKey";
     private const int DefaultDailyLimit = 1000;
-    private const int DefaultDatasetRefreshHours = 24;
-    private const int DefaultSeasonCoveragePercent = 50;
 
     // How long a plugin write suppresses the change event it raises (self-write guard, §15 step 9).
     private static readonly TimeSpan SelfWriteWindow = TimeSpan.FromSeconds(30);
@@ -150,7 +148,9 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         _imdbDataset = new ImdbRatingsDataset(
             _datasetHttpClient,
             dataDir,
-            () => TimeSpan.FromHours(Plugin.Instance?.Configuration.ImdbDatasetRefreshHours ?? DefaultDatasetRefreshHours),
+            () => Plugin.Instance is { } plugin
+                ? PluginConfigurationMapper.ToDatasetRefreshInterval(plugin.Configuration)
+                : TimeSpan.FromDays(1),
             _clock,
             new Logger<ImdbRatingsDataset>(_loggerFactory));
     }
@@ -606,9 +606,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     {
         var candidates = new List<IRatingResolver>(2)
         {
-            new ImdbDatasetResolver(
-                _imdbDataset,
-                () => Plugin.Instance?.Configuration.SeasonMinimumCoveragePercent ?? DefaultSeasonCoveragePercent)
+            new ImdbDatasetResolver(_imdbDataset)
         };
 
         if (!string.IsNullOrWhiteSpace(apiKey))
@@ -840,12 +838,12 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             }
 
             // Same ids the episode itself would resolve by, inherited-id filter included: a season
-            // must never be averaged from ids that are really its series'.
+            // must never be averaged from ids that are really its series'. An episode without a
+            // usable id is recorded as a blank rather than skipped — it still counts towards the
+            // season's episode total, which is what makes it fail the completeness rule instead of
+            // quietly shrinking the set it is averaged over.
             var ids = ExtractProviderIds(baseItem);
-            if (!ids.TryGetValue("Imdb", out var imdbId) || string.IsNullOrWhiteSpace(imdbId))
-            {
-                continue;
-            }
+            ids.TryGetValue("Imdb", out var imdbId);
 
             if (!members.TryGetValue(episode.SeasonId, out var list))
             {
@@ -853,7 +851,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 members[episode.SeasonId] = list;
             }
 
-            ((List<string>)list).Add(imdbId);
+            ((List<string>)list).Add(string.IsNullOrWhiteSpace(imdbId) ? string.Empty : imdbId);
         }
 
         return members;
@@ -872,14 +870,12 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             IsVirtualItem = false
         };
 
+        // One entry per episode, blank where it has no usable id — see the full-pass overload.
         var ids = new List<string>();
         foreach (var baseItem in _libraryManager.GetItemList(query))
         {
-            var itemIds = ExtractProviderIds(baseItem);
-            if (itemIds.TryGetValue("Imdb", out var imdbId) && !string.IsNullOrWhiteSpace(imdbId))
-            {
-                ids.Add(imdbId);
-            }
+            ExtractProviderIds(baseItem).TryGetValue("Imdb", out var imdbId);
+            ids.Add(string.IsNullOrWhiteSpace(imdbId) ? string.Empty : imdbId);
         }
 
         return ids;

@@ -62,18 +62,12 @@ public class PluginConfiguration : BasePluginConfiguration
 #pragma warning restore CA1819
 
     /// <summary>
-    /// Gets or sets the share of a season's episodes (0-100) that must resolve before a season
-    /// average is written. Guards against a season where one or two stray episodes resolved: their
-    /// mean describes them, not the season. <c>0</c> accepts any single episode.
+    /// Gets or sets how often the local copy of IMDb's <c>title.ratings</c> dataset is
+    /// re-downloaded: <c>Daily</c>, <c>Weekly</c>, <c>Monthly</c> or <c>Never</c>. IMDb
+    /// regenerates the file once a day, so nothing below daily would help. <c>Never</c> keeps the
+    /// copy that is there and still fetches one when none exists.
     /// </summary>
-    public int SeasonMinimumCoveragePercent { get; set; } = 50;
-
-    /// <summary>
-    /// Gets or sets how many hours a downloaded copy of IMDb's <c>title.ratings</c> dataset stays
-    /// fresh. Only used by the <c>imdb-dataset</c> resolver. IMDb regenerates the file daily, so
-    /// there is nothing to gain below 24; <c>0</c> or less disables refreshing entirely.
-    /// </summary>
-    public int ImdbDatasetRefreshHours { get; set; } = 24;
+    public string ImdbDatasetRefresh { get; set; } = "Daily";
 
     /// <summary>
     /// Gets or sets the default external rating source used for libraries without a

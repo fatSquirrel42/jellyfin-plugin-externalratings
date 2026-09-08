@@ -105,8 +105,15 @@ mechanism check, not a statistic.
   0 %, all announced-but-not-aired.
 - **96.1 %** of seasons (268 / 279) have 100 % episode coverage; 3.2 % are the unaired ones.
 
-So a season average needs a **minimum-coverage threshold**, and its job is to suppress unaired
-seasons rather than to paper over patchy data.
+That is what makes the season rule **all-or-nothing** affordable: a season score is written only
+if every episode the library holds resolved. 96 % of seasons already clear that bar, and the
+exceptions are unaired episodes, which exist only as virtual items and are never enumerated.
+
+> A configurable minimum-coverage threshold was tried first and removed on 2026-09-08. It could
+> not do its job: `CollectSeasonMembers` dropped episodes without an IMDb id *before* counting,
+> so the denominator was "episodes already matched". A season with 2 of 12 matched reported
+> 100 % coverage and got a two-episode average — exactly the case the threshold was documented
+> to prevent.
 
 **IMDb's own season average is the unweighted mean**, and it is reproducible from the dataset.
 IMDb displays "8.6 Average from 43K episode ratings" for `tt7078180` season 1; computed from
@@ -260,9 +267,11 @@ That is simpler *and* more defensible:
 Compute it from the resolver's own lookups, never from `CommunityRating` values already written —
 otherwise the result depends on write order and on `DryRun`.
 
-Coverage threshold: with `IsVirtualItem = false` the unaired-season problem from §3 largely
-disappears, since unaired episodes are virtual items and never enumerated. A minimum-coverage
-threshold is still wanted for partially-present seasons.
+Completeness: with `IsVirtualItem = false` the unaired-season problem from §3 disappears, since
+unaired episodes are virtual items and never enumerated. What remains is the *unmatched* episode
+— one with a file but no IMDb id — and that is what the all-or-nothing rule catches. The member
+list therefore carries one entry per episode, blank where there is no id, so the count stays the
+season's true total instead of shrinking to the matched ones.
 
 Caveat on the display side: per §8 Wholphin renders no Season rating, so this value is write-only
 for the primary client. jellyfin-web does show it.

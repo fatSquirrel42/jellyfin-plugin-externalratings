@@ -147,26 +147,36 @@ public sealed class ImdbDatasetResolverTests : IDisposable
     }
 
     [Fact]
-    public async Task SeasonIgnoresMembersTheDatasetDoesNotKnow()
+    public async Task AMemberTheDatasetDoesNotKnow_MeansNoSeasonScore()
     {
-        // 9.5 and 9.5 resolve, the third does not: the mean is over what resolved, and coverage
-        // (2 of 3) still clears the default 50%.
+        // All-or-nothing. Two of three resolving used to be enough under a 50% threshold; it is
+        // not any more, because IMDb rates every aired episode and so the third member is an
+        // unmatched episode rather than an unrated one.
         var result = await _resolver.ResolveAsync(
             SeasonRequest("tt0903747", "tt2301451", "tt9999999"), CancellationToken.None);
 
-        result.Resolution.Should().Be(RatingResolution.Found);
-        result.Score.Should().Be(9.5f);
+        result.Resolution.Should().Be(RatingResolution.NoMatch);
     }
 
     [Fact]
-    public async Task SeasonBelowTheCoverageThresholdIsNoMatch()
+    public async Task AnEpisodeWithoutAnIdIsABlankMember_AndAlsoBlocksTheSeason()
     {
-        var resolver = new ImdbDatasetResolver(_dataset, () => 75);
-
-        var result = await resolver.ResolveAsync(
-            SeasonRequest("tt2301451", "tt9999998", "tt9999999"), CancellationToken.None);
+        // How the host reports an episode that has no IMDb id of its own: a blank entry, kept so
+        // the count stays the season's true episode total.
+        var result = await _resolver.ResolveAsync(
+            SeasonRequest("tt0903747", "tt2301451", string.Empty), CancellationToken.None);
 
         result.Resolution.Should().Be(RatingResolution.NoMatch);
+    }
+
+    [Fact]
+    public async Task ACompleteSeasonResolves()
+    {
+        var result = await _resolver.ResolveAsync(
+            SeasonRequest("tt0903747", "tt2301451"), CancellationToken.None);
+
+        result.Resolution.Should().Be(RatingResolution.Found);
+        result.Score.Should().Be(9.5f);
     }
 
     [Fact]
@@ -187,22 +197,6 @@ public sealed class ImdbDatasetResolverTests : IDisposable
 
         result.Resolution.Should().Be(RatingResolution.Found);
         result.Score.Should().Be(6.8f);
-    }
-
-    [Fact]
-    public async Task TheCoverageThresholdIsReadPerRequest()
-    {
-        var threshold = 0;
-        var resolver = new ImdbDatasetResolver(_dataset, () => threshold);
-        var request = SeasonRequest("tt2301451", "tt9999998", "tt9999999", "tt9999997");
-
-        (await resolver.ResolveAsync(request, CancellationToken.None)).Resolution
-            .Should().Be(RatingResolution.Found);
-
-        threshold = 50;
-
-        (await resolver.ResolveAsync(request, CancellationToken.None)).Resolution
-            .Should().Be(RatingResolution.NoMatch);
     }
 
     [Fact]
