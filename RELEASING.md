@@ -49,8 +49,11 @@ Needs `jprm` (`pip install --user jprm`) and the GitHub CLI (`gh auth login`).
 
 2. **Verify**: `dotnet test --filter "Category!=Live"` (all green) and `dotnet build -c Release` (clean).
 
-3. **Build the package** (from the repo root; reads `build.yaml`):
+3. **Build the package** (from the repo root; reads `build.yaml`). **Create the output directory
+   first** — jprm does not, and it fails with `No such file or directory:
+   ./artifacts/external-ratings_<X.Y.Z.0>.zip` if it is missing:
    ```
+   mkdir -p ./artifacts
    jprm plugin build . --output ./artifacts --version <X.Y.Z.0>
    ```
    Produces `artifacts/external-ratings_<X.Y.Z.0>.zip` (contains the DLL + generated `meta.json`), a

@@ -97,10 +97,14 @@ jobs:
           open(p, 'w', encoding='utf-8').write(json.dumps(m, indent=4) + '\n')
           PY
 
+      # jprm does NOT create --output; zip_path() opens the archive for writing and dies with
+      # "No such file or directory: ./artifacts/<slug>_<version>.zip" on a fresh checkout.
       - name: Build the package
         env:
           V: ${{ inputs.version }}
-        run: jprm plugin build . --output ./artifacts --version "$V"
+        run: |
+          mkdir -p ./artifacts
+          jprm plugin build . --output ./artifacts --version "$V"
 
       # jprm PREPENDS the new entry, so the newest version is manifest versions[0]; check-versions.sh
       # reads it there.
