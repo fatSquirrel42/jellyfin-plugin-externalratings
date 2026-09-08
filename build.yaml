@@ -4,21 +4,31 @@ guid: "54015a93-7e43-4406-adcf-a15cc251dff1"
 version: "0.1.1.0"
 targetAbi: "10.11.11.0"
 framework: "net9.0"
-overview: "Resolves external community ratings (MyAnimeList via mdblist) into Jellyfin's CommunityRating field."
+overview: "Resolves external community ratings (IMDb, or MyAnimeList and eight more via mdblist) into Jellyfin's CommunityRating field."
 description: >
-  Server-side plugin that resolves the community score of an external source
-  (initially MyAnimeList through mdblist) for anime items and writes it into
-  Jellyfin's standard CommunityRating field - natively visible on all clients
-  including TV apps, without any web-UI hacks.
+  Server-side plugin that resolves the community score of an external source and writes it
+  into Jellyfin's standard CommunityRating field - natively visible on all clients including
+  TV apps, without any web-UI hacks. IMDb is served from a local copy of IMDb's own dataset
+  files, with no API key and no request quota, and covers movies, series, seasons and
+  episodes. MyAnimeList and eight other sources come through mdblist and need a free API key.
 category: "Metadata"
 owner: "fatSquirrel42"
 artifacts:
 - "Jellyfin.Plugin.ExternalRatings.dll"
 changelog: |
-  Fixes the realtime item listener deleting episode community ratings.
-  - The listener handed every changed item to the pipeline without the level filter the scheduled
-    pass applies. An Episode therefore arrived as an unsupported level, where the default
-    UnsupportedLevelBehavior=ClearField removed its rating - an item the full pass never touches.
-    The realtime path now applies the same supported-level filter as the full pass.
-  - Docs: records that a metadata write wakes another plugin's item listener but does not cause
-    media-segment re-analysis, and why 0 is not a portable no-rating sentinel.
+  Adds season and episode ratings, and an IMDb source that needs no API key.
+  - New IMDb source, resolved from local copies of IMDb's own dataset files (title.ratings, plus
+    title.episode for season scores). No API key, no request quota, and it covers all four item
+    levels. The files are downloaded on your server and refreshed on a schedule you pick
+    (daily/weekly/monthly, or never).
+  - Seasons and episodes can now be rated. Both are off by default - turn them on under
+    "Item levels". An episode is matched by its own IMDb id only, never by its position in the
+    season, because TheTVDB and IMDb numbering diverge for some shows.
+  - A season score is IMDb's season: the mean over every episode IMDb lists for it, so it matches
+    the figure IMDb's own page shows even when you only hold part of the season. Which IMDb season
+    a season is comes from its episodes' ids; if they land in two IMDb seasons, or none, nothing is
+    written rather than something guessed.
+  - The provider setting is gone. You choose only a rating source per library, and the plugin picks
+    the way to resolve it from the source, the item level and the ids the item actually has.
+  - An item whose source cannot serve its level is cleared, not skipped, so the field always shows
+    the configured source or nothing.
