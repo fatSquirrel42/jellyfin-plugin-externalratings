@@ -279,11 +279,17 @@ internal sealed class ImdbDatasetFile<TParsed> : IDisposable
             }
 
             _parsedFrom = timestamp;
-            _logger.LogInformation(
-                "Indexed IMDb {Dataset}: {Summary} in {Elapsed}",
-                _description,
-                describeParsed(_parsed),
-                (_clock.UtcNow - started).ToString("g", CultureInfo.InvariantCulture));
+
+            // Guarded because describeParsed() walks the parsed structure to build its summary;
+            // there is no reason to pay for that when Information is not being written.
+            if (_logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation(
+                    "Indexed IMDb {Dataset}: {Summary} in {Elapsed}",
+                    _description,
+                    describeParsed(_parsed),
+                    (_clock.UtcNow - started).ToString("g", CultureInfo.InvariantCulture));
+            }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException)
         {

@@ -81,6 +81,15 @@
         <Rule Id="CA1812" Action="Info" />
         <!-- disable warning CA1822: Member does not access instance data and can be marked as static -->
         <Rule Id="CA1822" Action="Info" />
+        <!-- disable warning CA1873: Evaluation of this argument may be expensive and unnecessary
+            if logging is disabled. Appeared with a newer SDK feature band and fires on 20 call
+            sites here, all of which pass a readonly string field, a string parameter, an int
+            local or a Guid property - nothing the rule's own guidance would call expensive, and
+            none of them in a hot loop. Wrapping each in an IsEnabled branch would obscure the
+            log statements for no measurable gain. The one genuinely expensive argument (a
+            summary-building delegate in ImdbDatasetFile) is guarded by hand instead. Revisit if
+            the rule ever gets precise enough to only flag real work. -->
+        <Rule Id="CA1873" Action="Info" />
         <!-- disable warning CA2000: Dispose objects before losing scope -->
         <Rule Id="CA2000" Action="Info" />
         <!-- disable warning CA2253: Named placeholders should not be numeric values -->
