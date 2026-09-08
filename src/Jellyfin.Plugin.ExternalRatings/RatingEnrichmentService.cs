@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -53,7 +54,9 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     private readonly SystemClock _clock;
     private readonly FileRatingCache _cache;
     private readonly BackupStore _backup;
-    private readonly CircuitBreaker _breaker;
+    // One circuit breaker per resolver key. A shared one would let a failing backend stop a healthy
+    // one: an invalid mdblist key trips it, and the offline dataset's items get skipped alongside.
+    private readonly ConcurrentDictionary<string, CircuitBreaker> _breakers = new(StringComparer.Ordinal);
     private readonly SelfWriteTracker _selfWriteTracker;
     private readonly IItemWriter _writer;
     private readonly DailyRequestCounter _requestCounter;
@@ -80,12 +83,11 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     private readonly ExclusiveOperationGate _gate = new();
 
     private volatile bool _initialized;
-    private IRatingResolver? _sharedResolver;
+    private RatingRouter? _sharedRouter;
     private RatingPipeline? _sharedPipeline;
 
-    // Identity of the graph currently built, so it is rebuilt only when the selection actually
-    // changes: the resolver key plus (for mdblist) the API key.
-    private string? _pipelineResolverKey;
+    // Identity of the graph currently built. Only the mdblist key can change which resolvers are
+    // available (no key = mdblist is not a candidate); everything else is read live via accessors.
     private string? _pipelineApiKey;
 
     private RunSummary? _lastSummary;
@@ -109,7 +111,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         _clock = new SystemClock();
         _cache = new FileRatingCache(new FileCacheFileStore(System.IO.Path.Combine(dataDir, "cache.json")), _clock);
         _backup = new BackupStore(new FileCacheFileStore(System.IO.Path.Combine(dataDir, "backup.jsonl")), _clock);
-        _breaker = new CircuitBreaker(_clock);
+
         _selfWriteTracker = new SelfWriteTracker(_clock, SelfWriteWindow);
         _writer = new SelfWriteTrackingItemWriter(new JellyfinItemWriter(libraryManager), _selfWriteTracker);
         _requestCounter = new DailyRequestCounter(_clock);
@@ -121,7 +123,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         var primaryHandler = new SocketsHttpHandler { AutomaticDecompression = DecompressionMethods.All };
         var budgetHandler = new BudgetTrackingHandler(
             _requestCounter,
-            _breaker,
+            BreakerFor(MdblistResolver.ResolverKey),
             () => Plugin.Instance?.Configuration.DailyRequestLimit ?? DefaultDailyLimit,
             _loggerFactory.CreateLogger<BudgetTrackingHandler>())
         {
@@ -153,8 +155,14 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             new Logger<ImdbRatingsDataset>(_loggerFactory));
     }
 
-    /// <summary>Gets a value indicating whether the circuit breaker is currently open.</summary>
-    public bool IsCircuitOpen => _breaker.IsOpen;
+    /// <summary>Gets a value indicating whether any resolver's circuit breaker is currently open.</summary>
+    public bool IsCircuitOpen => _breakers.Values.Any(breaker => breaker.IsOpen);
+
+    /// <summary>The circuit breaker for one resolver, created on first use.</summary>
+    /// <param name="resolverKey">The resolver key.</param>
+    /// <returns>That resolver's breaker.</returns>
+    private CircuitBreaker BreakerFor(string resolverKey)
+        => _breakers.GetOrAdd(resolverKey, _ => new CircuitBreaker(_clock));
 
     /// <summary>
     /// Runs a full enrichment pass over the enabled libraries. Shared by every trigger (scheduled
@@ -173,10 +181,11 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         }
 
         var apiKey = PluginConfigurationMapper.GetResolverSetting(config, ApiKeySettingKey);
-        if (UsesMdblist(config) && string.IsNullOrWhiteSpace(apiKey))
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.LogWarning("External Ratings run skipped: no mdblist API key configured");
-            return;
+            // Not a reason to skip the run any more: the offline IMDb dataset needs no key. Only the
+            // mdblist-backed sources become unreachable, and those items route nowhere.
+            _logger.LogInformation("External Ratings: no mdblist API key configured, so only IMDb (offline dataset) is available");
         }
 
         if (config.EnabledLibraries.Length == 0)
@@ -188,24 +197,20 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         // Initialize the stores + cold-start budget once (shared with the listener).
         await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 
-        var (resolver, pipeline) = GetOrBuildPipeline(config.ActiveResolverKey, apiKey ?? string.Empty);
+        var (router, pipeline) = GetOrBuildPipeline(apiKey ?? string.Empty);
 
         Func<PipelineOptions> optionsAccessor = () => PluginConfigurationMapper.ToPipelineOptions(Plugin.Instance!.Configuration);
-        // The daily budget governs metered resolvers only. For an unmetered one the counter never
-        // moves, but a counter left exhausted by an earlier mdblist run would otherwise stop the
-        // very first item of the pass, so the limit is lifted rather than merely unreachable.
-        Func<int> dailyLimitAccessor = () => UsesMdblist(Plugin.Instance?.Configuration ?? config)
-            ? Plugin.Instance?.Configuration.DailyRequestLimit ?? DefaultDailyLimit
-            : int.MaxValue;
+        Func<int> dailyLimitAccessor = () => Plugin.Instance?.Configuration.DailyRequestLimit ?? DefaultDailyLimit;
 
         // Phase 0 only exists to amortise HTTP round-trips. A resolver that answers from local data
         // is not an IBatchRatingResolver, and prefetching it would just walk the library twice.
-        var prefetcher = resolver is IBatchRatingResolver batchResolver
+        var prefetcher = router.TryGetBatchResolver() is { } batchResolver
             ? new RatingPrefetcher(
                 batchResolver,
+                item => router.Route(item).Resolver?.Key == batchResolver.Key,
                 _cache,
                 _clock,
-                _breaker,
+                BreakerFor(batchResolver.Key),
                 _requestCounter,
                 optionsAccessor,
                 dailyLimitAccessor,
@@ -230,7 +235,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
 
         try
         {
-            var (items, liveIds) = BuildWorkItems(config, resolver);
+            var (items, liveIds) = BuildWorkItems(config);
             var summary = await runner.RunAsync(items, liveIds, progress, cancellationToken).ConfigureAwait(false);
 
             lock (_statusGate)
@@ -262,8 +267,7 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         }
 
         var apiKey = PluginConfigurationMapper.GetResolverSetting(config, ApiKeySettingKey);
-        var usesMdblist = UsesMdblist(config);
-        if ((usesMdblist && string.IsNullOrWhiteSpace(apiKey)) || config.EnabledLibraries.Length == 0)
+        if (config.EnabledLibraries.Length == 0)
         {
             return;
         }
@@ -272,14 +276,6 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         // orphan-prune race, and re-applying an external rating over a value being restored.
         if (_gate.IsFullRunInProgress || _gate.IsRestoreInProgress)
         {
-            return;
-        }
-
-        // The budget only governs metered resolvers. A leftover exhausted counter from an earlier
-        // mdblist run must not stall the dataset resolver, which spends nothing.
-        if (usesMdblist && _requestCounter.IsExhausted(config.DailyRequestLimit))
-        {
-            _logger.LogDebug("External Ratings realtime enrichment for {ItemId} skipped: daily budget exhausted", itemId);
             return;
         }
 
@@ -309,14 +305,14 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             return;
         }
 
-        var (resolver, pipeline) = GetOrBuildPipeline(config.ActiveResolverKey, apiKey ?? string.Empty);
+        var (router, pipeline) = GetOrBuildPipeline(apiKey ?? string.Empty);
 
         // Mirror the full pass exactly: it enumerates ProcessedLevels, so the realtime path must
         // filter by the same thing -- capability *and* the user's opt-in. Without it an Episode or
         // Season reaches the pipeline as an unsupported level, and UnsupportedLevelBehavior=ClearField
         // then wipes a rating the scheduled task would never have touched -- and every such write
         // re-triggers other plugins listening on ItemUpdated (media-segment analysis, for example).
-        if (!ProcessedLevels(resolver, config).Contains(level.Value))
+        if (!ProcessedLevels(config).Contains(level.Value))
         {
             return;
         }
@@ -331,11 +327,32 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             return;
         }
 
+        var providerIds = ExtractProviderIds(baseItem);
+        List<string>? memberIds = null;
+
+        // A Season resolves from its episodes, so the realtime path must gather them too — without
+        // members the aggregate is a no-match, and ClearField would wipe the season's rating.
+        if (level == ItemLevel.Season && baseItem is Season seasonItem)
+        {
+            memberIds = CollectSeasonMembers(seasonItem);
+            providerIds = BuildSeasonProviderIds(baseItem, memberIds.Count);
+        }
+
         var workItem = new RatingWorkItem(
             new RatingItemRef(baseItem.Id, baseItem.Name),
             level.Value,
-            ExtractProviderIds(baseItem),
-            source);
+            providerIds,
+            source,
+            memberIds);
+
+        // The daily budget only governs the metered route. A counter left exhausted by an earlier
+        // mdblist run must not stall an item the offline dataset would serve for free.
+        if (router.Route(workItem).Resolver is MdblistResolver
+            && _requestCounter.IsExhausted(config.DailyRequestLimit))
+        {
+            _logger.LogDebug("External Ratings realtime enrichment for {ItemId} skipped: daily budget exhausted", itemId);
+            return;
+        }
 
         var runner = new SingleItemEnrichmentRunner(pipeline, new Logger<SingleItemEnrichmentRunner>(_loggerFactory));
         await runner.RunAsync(workItem, cancellationToken).ConfigureAwait(false);
@@ -440,54 +457,56 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
                 s?.NoMatch ?? 0,
                 s?.Errors ?? 0,
                 s?.DryRunSkipped ?? 0,
-                _breaker.IsOpen);
+                IsCircuitOpen);
         }
-    }
-
-    /// <summary>Gets the item levels the active resolver supports, as strings (for the status endpoint).</summary>
-    /// <returns>The supported levels (for example <c>Movie</c>, <c>Series</c>).</returns>
-    public IReadOnlyList<string> GetSupportedLevels()
-    {
-        // SupportedInputProviders needs neither the API key nor HTTP, so a capability-only instance
-        // of the *configured* resolver is enough — it must be that one, since the config page builds
-        // its level and source lists from this endpoint.
-        var resolver = BuildResolver(Plugin.Instance?.Configuration.ActiveResolverKey, string.Empty);
-        return SupportedLevels(resolver).Select(level => level.ToString()).ToList();
     }
 
     /// <summary>
-    /// Gets the capabilities of every selectable resolver (for the status endpoint). Capability is
-    /// static, so these instances need no API key and make no requests.
+    /// Gets the selectable rating sources across every resolver, each with the item levels some
+    /// resolver can serve it at (for the status endpoint and the config page).
     /// </summary>
-    /// <returns>One entry per selectable resolver.</returns>
-    public IReadOnlyList<ResolverCapabilities> GetResolverCapabilities()
+    /// <remarks>
+    /// The union, deduplicated by source key: <c>imdb</c> is offered by both resolvers and must
+    /// appear once, carrying the wider level set. Capability is static, so these instances need no
+    /// API key and make no requests — and mdblist is included regardless of whether a key is
+    /// configured, so the user can see what a key would unlock.
+    /// </remarks>
+    /// <returns>The sources in a stable order, most capable first.</returns>
+    public IReadOnlyList<SourceCapabilities> GetSupportedSources()
     {
-        var keys = new[] { MdblistResolver.ResolverKey, ImdbDatasetResolver.ResolverKey };
-        var result = new List<ResolverCapabilities>(keys.Length);
-
-        foreach (var key in keys)
+        var resolvers = new IRatingResolver[]
         {
-            var resolver = BuildResolver(key, string.Empty);
-            result.Add(new ResolverCapabilities
+            new ImdbDatasetResolver(_imdbDataset),
+            new MdblistResolver(_httpClient, string.Empty, new Logger<MdblistResolver>(_loggerFactory))
+        };
+
+        var router = new RatingRouter(resolvers);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<SourceCapabilities>();
+
+        foreach (var resolver in resolvers)
+        {
+            foreach (var source in resolver.SupportedRatingSources)
             {
-                Key = resolver.Key,
-                DisplayName = resolver.DisplayName,
-                Levels = SupportedLevels(resolver).Select(level => level.ToString()).ToList(),
-                Sources = resolver.SupportedRatingSources.ToList(),
-                RequiresApiKey = resolver is MdblistResolver
-            });
+                if (!seen.Add(source.Key))
+                {
+                    continue;
+                }
+
+                result.Add(new SourceCapabilities
+                {
+                    Key = source.Key,
+                    DisplayName = source.DisplayName,
+                    Scale = source.Scale,
+                    Rescaled = source.Rescaled,
+                    Levels = router.ServableLevels(source.Key).Select(level => level.ToString()).ToList(),
+                    RequiresApiKey = !new ImdbDatasetResolver(_imdbDataset).SupportedRatingSources
+                        .Any(s => string.Equals(s.Key, source.Key, StringComparison.OrdinalIgnoreCase))
+                });
+            }
         }
 
         return result;
-    }
-
-    /// <summary>Gets the external rating sources the active resolver can return (for the status endpoint).</summary>
-    /// <returns>The selectable rating sources with their display names and native scales.</returns>
-    public IReadOnlyList<RatingSourceInfo> GetSupportedSources()
-    {
-        // SupportedRatingSources is a static capability: no API key or HTTP needed.
-        var resolver = BuildResolver(Plugin.Instance?.Configuration.ActiveResolverKey, string.Empty);
-        return resolver.SupportedRatingSources.ToList();
     }
 
     /// <summary>Disposes the owned cache, backup stores, and HTTP stack.</summary>
@@ -544,20 +563,17 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             var config = Plugin.Instance?.Configuration;
             var apiKey = config is null ? null : PluginConfigurationMapper.GetResolverSetting(config, ApiKeySettingKey);
 
-            // Only mdblist has a request budget to reconcile; the dataset resolver makes no metered
-            // calls, so there is nothing to cold-start and no key to spend.
-            if (config is not null && UsesMdblist(config) && !string.IsNullOrWhiteSpace(apiKey))
+            // Only mdblist has a request budget to reconcile, and it is reconcilable whenever a key
+            // exists — no provider choice gates it any more.
+            if (!string.IsNullOrWhiteSpace(apiKey))
             {
                 try
                 {
-                    var (resolver, _) = GetOrBuildPipeline(config.ActiveResolverKey, apiKey);
-                    if (resolver is MdblistResolver mdblist)
+                    var mdblist = new MdblistResolver(_httpClient, apiKey, new Logger<MdblistResolver>(_loggerFactory));
+                    var used = await mdblist.GetUsedRequestCountAsync(cancellationToken).ConfigureAwait(false);
+                    if (used is int usedCount)
                     {
-                        var used = await mdblist.GetUsedRequestCountAsync(cancellationToken).ConfigureAwait(false);
-                        if (used is int usedCount)
-                        {
-                            _requestCounter.InitializeFromColdStart(usedCount);
-                        }
+                        _requestCounter.InitializeFromColdStart(usedCount);
                     }
                 }
                 catch (Exception ex)
@@ -575,60 +591,56 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
     }
 
     /// <summary>
-    /// Builds the resolver named by <see cref="PluginConfiguration.ActiveResolverKey"/>. An
-    /// unrecognised key falls back to mdblist, which is what every pre-existing config holds.
+    /// Builds the router for a run: every resolver that is usable right now, most preferred first.
     /// </summary>
-    /// <param name="resolverKey">The configured resolver key.</param>
-    /// <param name="apiKey">The mdblist API key (ignored by resolvers that need none).</param>
-    /// <returns>The resolver.</returns>
-    private IRatingResolver BuildResolver(string? resolverKey, string apiKey)
+    /// <remarks>
+    /// The offline IMDb dataset comes first because it costs no key and no quota, reads the same
+    /// numbers, and reaches all four levels; mdblist follows and is the only way to the other eight
+    /// sources — and, for <c>imdb</c>, the fallback for an item that has no IMDb id but does have a
+    /// Tmdb or Tvdb one. Without an API key mdblist is simply left out, which is how "no key" becomes
+    /// "those sources are unreachable" instead of a special case inside the router.
+    /// </remarks>
+    /// <param name="apiKey">The mdblist API key; blank means mdblist is unavailable.</param>
+    /// <returns>The router.</returns>
+    private RatingRouter BuildRouter(string apiKey)
     {
-        if (string.Equals(resolverKey, ImdbDatasetResolver.ResolverKey, StringComparison.OrdinalIgnoreCase))
+        var candidates = new List<IRatingResolver>(2)
         {
-            return new ImdbDatasetResolver(
+            new ImdbDatasetResolver(
                 _imdbDataset,
-                () => Plugin.Instance?.Configuration.SeasonMinimumCoveragePercent ?? DefaultSeasonCoveragePercent);
-        }
+                () => Plugin.Instance?.Configuration.SeasonMinimumCoveragePercent ?? DefaultSeasonCoveragePercent)
+        };
 
-        if (!string.IsNullOrWhiteSpace(resolverKey)
-            && !string.Equals(resolverKey, MdblistResolver.ResolverKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.LogWarning("Unknown resolver key {ResolverKey}; falling back to {Fallback}", resolverKey, MdblistResolver.ResolverKey);
+            candidates.Add(new MdblistResolver(_httpClient, apiKey, new Logger<MdblistResolver>(_loggerFactory)));
         }
 
-        return new MdblistResolver(_httpClient, apiKey, new Logger<MdblistResolver>(_loggerFactory));
+        return new RatingRouter(candidates);
     }
 
-    /// <summary>Whether the configured resolver talks to mdblist (and so needs a key and a budget).</summary>
-    /// <param name="config">The plugin configuration.</param>
-    /// <returns><see langword="true"/> for the mdblist resolver.</returns>
-    private static bool UsesMdblist(PluginConfiguration config)
-        => !string.Equals(config.ActiveResolverKey, ImdbDatasetResolver.ResolverKey, StringComparison.OrdinalIgnoreCase);
-
-    private (IRatingResolver Resolver, RatingPipeline Pipeline) GetOrBuildPipeline(string resolverKey, string apiKey)
+    private (RatingRouter Router, RatingPipeline Pipeline) GetOrBuildPipeline(string apiKey)
     {
         lock (_pipelineLock)
         {
-            if (_sharedResolver is null
+            if (_sharedRouter is null
                 || _sharedPipeline is null
-                || !string.Equals(_pipelineResolverKey, resolverKey, StringComparison.Ordinal)
                 || !string.Equals(_pipelineApiKey, apiKey, StringComparison.Ordinal))
             {
-                _sharedResolver = BuildResolver(resolverKey, apiKey);
-                _pipelineResolverKey = resolverKey;
+                _sharedRouter = BuildRouter(apiKey);
                 _pipelineApiKey = apiKey;
                 _sharedPipeline = new RatingPipeline(
-                    _sharedResolver,
+                    _sharedRouter,
                     _writer,
                     _backup,
                     _cache,
                     _clock,
-                    _breaker,
+                    BreakerFor,
                     () => PluginConfigurationMapper.ToPipelineOptions(Plugin.Instance!.Configuration),
                     new Logger<RatingPipeline>(_loggerFactory));
             }
 
-            return (_sharedResolver, _sharedPipeline);
+            return (_sharedRouter, _sharedPipeline);
         }
     }
 
@@ -657,23 +669,25 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
             .ToArray();
 
     /// <summary>
-    /// The levels actually enumerated: what the resolver can do, intersected with what the user
-    /// opted into via <see cref="PluginConfiguration.EnabledLevels"/>.
+    /// The levels actually enumerated: whatever the user opted into via
+    /// <see cref="PluginConfiguration.EnabledLevels"/>.
     /// </summary>
     /// <remarks>
-    /// Both the full pass and the realtime path must call this and nothing else. Lesson 8 in
-    /// <c>docs/lessons-learned.md</c> is the regression from the two disagreeing: a level the full
-    /// pass skipped reached the pipeline through the listener and
-    /// <c>UnsupportedLevelBehavior=ClearField</c> wiped the rating.
+    /// <para>
+    /// Deliberately independent of any resolver. The opt-in is global while rating sources are
+    /// per-library, so no single source can decide what gets enumerated. Whether a given item can
+    /// actually be served is a routing question answered per item, and an item with no route is
+    /// cleared rather than skipped — see <see cref="RatingPipeline"/>'s unsupported branch.
+    /// </para>
+    /// <para>
+    /// Both the full pass and the realtime path must call this and nothing else; lesson 8 in
+    /// <c>docs/lessons-learned.md</c> is the regression from those two disagreeing.
+    /// </para>
     /// </remarks>
-    /// <param name="resolver">The active resolver.</param>
     /// <param name="config">The plugin configuration.</param>
     /// <returns>The processed levels, in canonical order.</returns>
-    internal static IReadOnlyList<ItemLevel> ProcessedLevels(IRatingResolver resolver, PluginConfiguration config)
-    {
-        var enabled = PluginConfigurationMapper.ParseLevels(config.EnabledLevels);
-        return SupportedLevels(resolver).Where(enabled.Contains).ToArray();
-    }
+    internal static IReadOnlyList<ItemLevel> ProcessedLevels(PluginConfiguration config)
+        => PluginConfigurationMapper.ParseLevels(config.EnabledLevels);
 
     /// <summary>
     /// Builds the enumeration query for the enabled libraries. Filtering is by <c>AncestorIds</c>, not
@@ -712,16 +726,16 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         };
     }
 
-    private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config, IRatingResolver resolver)
+    private (IReadOnlyList<RatingWorkItem> Items, IReadOnlySet<Guid> LiveIds) BuildWorkItems(PluginConfiguration config)
     {
-        var query = BuildLibraryQuery(ProcessedLevels(resolver, config), config.EnabledLibraries);
+        var query = BuildLibraryQuery(ProcessedLevels(config), config.EnabledLibraries);
 
         // Resolve each item's source per its library. With no overrides configured, every item uses the
         // default, so skip the per-item GetCollectionFolders lookup entirely.
         var hasOverrides = config.LibrarySources.Length > 0;
         var defaultSource = PluginConfigurationMapper.ResolveSource(config, Array.Empty<Guid>());
 
-        var levels = ProcessedLevels(resolver, config);
+        var levels = ProcessedLevels(config);
         var seasonMembers = levels.Contains(ItemLevel.Season)
             ? CollectSeasonMembers(config.EnabledLibraries)
             : null;
@@ -843,6 +857,32 @@ public sealed class RatingEnrichmentService : ISingleItemEnricher, IDisposable
         }
 
         return members;
+    }
+
+    /// <summary>Collects one season's episode input ids (the realtime counterpart).</summary>
+    /// <param name="season">The season.</param>
+    /// <returns>Its episodes' input ids.</returns>
+    private List<string> CollectSeasonMembers(Season season)
+    {
+        var query = new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Episode },
+            ParentId = season.Id,
+            Recursive = true,
+            IsVirtualItem = false
+        };
+
+        var ids = new List<string>();
+        foreach (var baseItem in _libraryManager.GetItemList(query))
+        {
+            var itemIds = ExtractProviderIds(baseItem);
+            if (itemIds.TryGetValue("Imdb", out var imdbId) && !string.IsNullOrWhiteSpace(imdbId))
+            {
+                ids.Add(imdbId);
+            }
+        }
+
+        return ids;
     }
 
     /// <summary>

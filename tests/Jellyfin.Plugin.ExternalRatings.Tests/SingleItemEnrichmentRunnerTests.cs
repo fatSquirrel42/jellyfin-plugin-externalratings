@@ -45,7 +45,7 @@ public class SingleItemEnrichmentRunnerTests
         var breaker = new CircuitBreaker(clock);
         Func<PipelineOptions> options = () => new PipelineOptions { DryRun = dryRun };
         var pipeline = new RatingPipeline(
-            resolver, writer, backup, cache, clock, breaker, options, NullLogger<RatingPipeline>.Instance);
+            new FixedRouter(resolver), writer, backup, cache, clock, _ => breaker, options, NullLogger<RatingPipeline>.Instance);
         var runner = new SingleItemEnrichmentRunner(pipeline, NullLogger<SingleItemEnrichmentRunner>.Instance);
         return new Harness
         {

@@ -1,35 +1,19 @@
 using System;
-using System.Collections.Generic;
-using System.Net.Http;
 using FluentAssertions;
 using Jellyfin.Plugin.ExternalRatings;
 using Jellyfin.Plugin.ExternalRatings.Configuration;
 using Jellyfin.Plugin.ExternalRatings.Core;
-using Jellyfin.Plugin.ExternalRatings.Resolvers;
-using Jellyfin.Plugin.ExternalRatings.Tests.Fakes;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Jellyfin.Plugin.ExternalRatings.Tests;
 
 /// <summary>
-/// The processed levels are the intersection of what the resolver can do and what the user opted
-/// into. Capability alone used to decide it, which is fine at two levels but not once Episode
-/// multiplies the item count by one to two orders of magnitude.
+/// The processed levels are the user's global opt-in, nothing more. Resolver capability used to be
+/// intersected in, which made sense while one chosen provider served the whole library; it stopped
+/// making sense once sources are per-library and the backend is chosen per item.
 /// </summary>
 public class ProcessedLevelsTests
 {
-    private static StubRatingResolver AllFourLevels() => new()
-    {
-        SupportedInputProviders = new Dictionary<ItemLevel, IReadOnlyList<string>>
-        {
-            [ItemLevel.Movie] = new[] { "Imdb" },
-            [ItemLevel.Series] = new[] { "Imdb" },
-            [ItemLevel.Season] = new[] { "Imdb" },
-            [ItemLevel.Episode] = new[] { "Imdb" }
-        }
-    };
-
     [Fact]
     public void DefaultConfiguration_ProcessesMovieAndSeriesOnly()
     {
@@ -88,32 +72,34 @@ public class ProcessedLevelsTests
     }
 
     [Fact]
-    public void ProcessedLevels_IsTheIntersectionOfCapabilityAndConfig()
+    public void ProcessedLevels_IsTheOptInAlone_NotIntersectedWithAnyResolver()
     {
+        // Deliberately independent of capability. The opt-in is global while sources are
+        // per-library, so no single resolver may decide what gets enumerated; whether an item can
+        // be served is a routing question answered per item.
         var config = new PluginConfiguration { EnabledLevels = new[] { "Movie", "Series", "Season", "Episode" } };
-        var resolver = new MdblistResolver(new HttpClient(), string.Empty, NullLogger<MdblistResolver>.Instance);
 
-        // mdblist cannot do Season/Episode, so opting in must not conjure them.
-        RatingEnrichmentService.ProcessedLevels(resolver, config)
-            .Should().Equal(ItemLevel.Movie, ItemLevel.Series);
+        RatingEnrichmentService.ProcessedLevels(config)
+            .Should().Equal(ItemLevel.Movie, ItemLevel.Series, ItemLevel.Season, ItemLevel.Episode);
     }
 
     [Fact]
-    public void ProcessedLevels_OmitsCapableLevelsTheUserDidNotEnable()
+    public void ProcessedLevels_EnumeratesAnEpisode_EvenWhereNoSourceCouldServeIt()
+    {
+        // The consequence of the above, and the point of the design: an episode in a library whose
+        // source has no episode scores is still enumerated, routes nowhere, and is then cleared
+        // under the shipped ClearField default rather than quietly skipped.
+        var config = new PluginConfiguration { EnabledLevels = new[] { "Episode" } };
+
+        RatingEnrichmentService.ProcessedLevels(config).Should().Equal(ItemLevel.Episode);
+    }
+
+    [Fact]
+    public void ProcessedLevels_OmitsLevelsTheUserDidNotEnable()
     {
         var config = new PluginConfiguration { EnabledLevels = new[] { "Movie", "Series" } };
 
-        RatingEnrichmentService.ProcessedLevels(AllFourLevels(), config)
-            .Should().Equal(ItemLevel.Movie, ItemLevel.Series);
-    }
-
-    [Fact]
-    public void ProcessedLevels_IncludesEpisode_WhenBothAgree()
-    {
-        var config = new PluginConfiguration { EnabledLevels = new[] { "Movie", "Series", "Episode" } };
-
-        RatingEnrichmentService.ProcessedLevels(AllFourLevels(), config)
-            .Should().Equal(ItemLevel.Movie, ItemLevel.Series, ItemLevel.Episode);
+        RatingEnrichmentService.ProcessedLevels(config).Should().Equal(ItemLevel.Movie, ItemLevel.Series);
     }
 
     [Fact]
@@ -121,6 +107,6 @@ public class ProcessedLevelsTests
     {
         var config = new PluginConfiguration { EnabledLevels = Array.Empty<string>() };
 
-        RatingEnrichmentService.ProcessedLevels(AllFourLevels(), config).Should().BeEmpty();
+        RatingEnrichmentService.ProcessedLevels(config).Should().BeEmpty();
     }
 }

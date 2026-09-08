@@ -50,11 +50,11 @@ public class EnrichmentRunnerTests
         var counter = new DailyRequestCounter(clock);
         Func<PipelineOptions> options = () => new PipelineOptions { DryRun = dryRun };
         var pipeline = new RatingPipeline(
-            resolver, writer, backup, cache, clock, breaker, options, NullLogger<RatingPipeline>.Instance);
+            new FixedRouter(resolver), writer, backup, cache, clock, _ => breaker, options, NullLogger<RatingPipeline>.Instance);
         RatingPrefetcher? prefetcher = batchResolver is null
             ? null
             : new RatingPrefetcher(
-                batchResolver, cache, clock, breaker, counter, options, () => dailyLimit, NullLogger<RatingPrefetcher>.Instance);
+                batchResolver, _ => true, cache, clock, breaker, counter, options, () => dailyLimit, NullLogger<RatingPrefetcher>.Instance);
         var runner = new EnrichmentRunner(
             pipeline, prefetcher, cache, backup, counter, () => dailyLimit, NullLogger<EnrichmentRunner>.Instance);
         return new Harness

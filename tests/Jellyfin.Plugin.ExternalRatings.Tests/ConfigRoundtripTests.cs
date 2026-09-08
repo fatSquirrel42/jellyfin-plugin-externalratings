@@ -34,7 +34,6 @@ public class ConfigRoundtripTests
     {
         var config = new PluginConfiguration();
 
-        config.ActiveResolverKey.Should().Be("mdblist");
         config.RatingSource.Should().Be("none");
         config.CacheTtlDays.Should().Be(7);
         config.NegativeCacheTtlDays.Should().Be(1);
@@ -101,7 +100,6 @@ public class ConfigRoundtripTests
                 Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 Guid.Parse("22222222-2222-2222-2222-222222222222")
             },
-            ActiveResolverKey = "mdblist",
             RatingSource = "imdb",
             LibrarySources = new[]
             {

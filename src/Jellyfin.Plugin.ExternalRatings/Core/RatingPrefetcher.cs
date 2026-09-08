@@ -22,6 +22,7 @@ namespace Jellyfin.Plugin.ExternalRatings.Core;
 internal sealed class RatingPrefetcher
 {
     private readonly IBatchRatingResolver _resolver;
+    private readonly Func<RatingWorkItem, bool> _routesHere;
     private readonly IRatingCache _cache;
     private readonly IClock _clock;
     private readonly CircuitBreaker _breaker;
@@ -32,15 +33,21 @@ internal sealed class RatingPrefetcher
 
     /// <summary>Initializes a new instance of the <see cref="RatingPrefetcher"/> class.</summary>
     /// <param name="resolver">The batch resolver.</param>
+    /// <param name="routesHere">
+    /// Whether an item is routed to <paramref name="resolver"/>. Items another resolver serves must
+    /// not be batched here: their ids would go to the wrong backend and be cached under the wrong
+    /// resolver key.
+    /// </param>
     /// <param name="cache">The rating cache to seed.</param>
     /// <param name="clock">The clock (for cache TTLs).</param>
-    /// <param name="breaker">The shared circuit breaker.</param>
+    /// <param name="breaker">The circuit breaker for <paramref name="resolver"/>.</param>
     /// <param name="counter">The shared daily request counter.</param>
     /// <param name="optionsAccessor">Accessor for the cache TTLs (shared with the pipeline).</param>
     /// <param name="dailyLimitAccessor">Accessor for the configured daily request limit.</param>
     /// <param name="logger">The logger.</param>
     public RatingPrefetcher(
         IBatchRatingResolver resolver,
+        Func<RatingWorkItem, bool> routesHere,
         IRatingCache cache,
         IClock clock,
         CircuitBreaker breaker,
@@ -50,6 +57,7 @@ internal sealed class RatingPrefetcher
         ILogger<RatingPrefetcher> logger)
     {
         _resolver = resolver;
+        _routesHere = routesHere;
         _cache = cache;
         _clock = clock;
         _breaker = breaker;
@@ -110,6 +118,11 @@ internal sealed class RatingPrefetcher
 
         foreach (var item in items)
         {
+            if (!_routesHere(item))
+            {
+                continue;
+            }
+
             var selection = InputIdSelector.Select(_resolver, item.Level, item.ProviderIds);
             if (selection is null)
             {

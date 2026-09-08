@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Jellyfin.Plugin.ExternalRatings.Resolvers;
 
 namespace Jellyfin.Plugin.ExternalRatings.Api;
 
@@ -17,30 +16,15 @@ public class StatusResponse
     public bool DryRun { get; init; }
 
     /// <summary>
-    /// Gets the key of the active resolver.
+    /// Gets the selectable rating sources, each with the item levels it can be served at. The
+    /// config page builds its source dropdown, scale hint and level coverage from this. There is no
+    /// provider to choose: the plugin routes per item from (source × level × available ids).
     /// </summary>
-    public string ActiveResolverKey { get; init; } = string.Empty;
+    public IReadOnlyList<SourceCapabilities> SupportedSources { get; init; } = new List<SourceCapabilities>();
 
     /// <summary>
-    /// Gets the item levels the active resolver supports (its capability feature flag).
-    /// </summary>
-    public IReadOnlyList<string> SupportedLevels { get; init; } = new List<string>();
-
-    /// <summary>
-    /// Gets the external rating sources the active resolver can return, with their display names and
-    /// native scales. The config page renders its source dropdowns from this list.
-    /// </summary>
-    public IReadOnlyList<RatingSourceInfo> SupportedSources { get; init; } = new List<RatingSourceInfo>();
-
-    /// <summary>
-    /// Gets the capabilities of every selectable resolver, not just the active one, so the config
-    /// page can switch resolvers and show the resulting levels and sources without a save/reload.
-    /// </summary>
-    public IReadOnlyList<ResolverCapabilities> Resolvers { get; init; } = new List<ResolverCapabilities>();
-
-    /// <summary>
-    /// Gets the item levels currently enabled in the configuration (intersected with the active
-    /// resolver's capability at run time).
+    /// Gets the item levels currently enabled in the configuration. The choice is global; whether a
+    /// given library's source can actually serve a level is decided per item.
     /// </summary>
     public IReadOnlyList<string> EnabledLevels { get; init; } = new List<string>();
 
