@@ -2,11 +2,12 @@
 
 This plugin is distributed as a **GitHub Release** plus a repo-hosted **`manifest.json`** that users add
 as a Jellyfin plugin repository. Releases are cut manually with [`jprm`](https://pypi.org/project/jprm/)
-(the Jellyfin Plugin Repository Manager). One artifact targets Jellyfin **10.11.x** (net9.0); Jellyfin
-12.0 needs a separate build — see [docs/jellyfin-12-compat.md](docs/jellyfin-12-compat.md).
+(the Jellyfin Plugin Repository Manager). One artifact, targeting Jellyfin **12.0+** (net10.0). The
+10.11.x line ended at `0.2.0.0` and its manifest entry stays in place — see
+[docs/jellyfin-12-compat.md](docs/jellyfin-12-compat.md).
 
 ## Prerequisites
-- .NET 9 SDK.
+- .NET 10 SDK.
 - `jprm` installed: `pip install --user jprm`.
 
 ## Steps
@@ -93,8 +94,13 @@ https://raw.githubusercontent.com/fatSquirrel42/jellyfin-plugin-externalratings/
   the release asset; if the release/asset is missing, `Catalog → Install` fails with a download error for
   everyone. After committing `manifest.json`, verify `sourceUrl` returns HTTP 200 and its `md5sum` equals
   the manifest `checksum`.
-- `targetAbi` (currently `10.11.11.0`) is the **minimum** Jellyfin version allowed to install the plugin.
+- `targetAbi` (currently `12.0.0.0`) is the **minimum** Jellyfin version allowed to install the plugin.
   It is kept equal to the `Jellyfin.Controller` package the plugin compiles against — the safe default,
-  and `scripts/check-versions.sh` prints a note if they diverge. Lowering it (e.g. `10.11.0.0`) would let
-  older 10.11.x servers install too, but only after confirming every host API the plugin uses exists on
-  that floor.
+  and `scripts/check-versions.sh` prints a note if they diverge. Lowering it would let older servers
+  install too, but only after confirming every host API the plugin uses exists on that floor. It must
+  never drop below `12.0.0.0` while the build targets net10.0: a 10.11.x server would then be offered a
+  binary it cannot load.
+- **`check-versions.sh` allows the manifest to lag the source tree.** The source tree describes the
+  *next* release, `manifest.json` the *published* ones, so a bumped-but-unreleased version reports
+  `pending release` instead of failing. That window is what lets a version or `targetAbi` change be
+  reviewed on a PR without turning `main` red; the release job closes it in one run.

@@ -6,9 +6,9 @@ commit. For install/first-run see [README.md](README.md); for design rationale s
 
 ## Overview
 
-Jellyfin **10.11.x** server plugin (`net9.0`) that resolves an external community score and writes it
+Jellyfin **12.0+** server plugin (`net10.0`) that resolves an external community score and writes it
 into Jellyfin's native `CommunityRating`. Plugin GUID `54015a93-7e43-4406-adcf-a15cc251dff1`. Single
-source project (`src/Jellyfin.Plugin.ExternalRatings`) + test project (`tests/…Tests`), both `net9.0`.
+source project (`src/Jellyfin.Plugin.ExternalRatings`) + test project (`tests/…Tests`), both `net10.0`.
 
 **Two resolvers, chosen automatically.** `mdblist` (HTTP, keyed, budgeted, batched; Movie+Series,
 nine sources) and `imdb-dataset` (local copies of IMDb's `title.ratings.tsv.gz` and, for season
@@ -21,7 +21,7 @@ touching level or matching logic.
 
 ## Build & test commands
 
-Requires the **.NET 9 SDK**.
+Requires the **.NET 10 SDK**.
 
 - Build: `dotnet build` (or `-c Release`). **Must stay clean** — the main project has
   `TreatWarningsAsErrors=true`, `AnalysisMode=AllEnabledByDefault`, and the `jellyfin.ruleset`.
@@ -67,9 +67,10 @@ The strict ruleset makes several non-obvious things mandatory:
   DTO.
 - **Test project needs runtime Jellyfin assemblies.** The main project references
   `Jellyfin.Controller`/`Jellyfin.Model` with `ExcludeAssets=runtime` (the host supplies them), so
-  tests touching a Jellyfin type add a plain `Jellyfin.Model 10.11.11` reference and
-  `FrameworkReference Microsoft.AspNetCore.App`. `Microsoft.Extensions.Logging.Abstractions` is
-  pinned to **`9.0.11`** (lower trips NU1605).
+  tests touching a Jellyfin type add a plain `Jellyfin.Model 12.0.0` reference and
+  `FrameworkReference Microsoft.AspNetCore.App`. Do **not** add
+  `Microsoft.Extensions.Logging.Abstractions`: on net10.0 the shared framework already provides it and
+  an explicit reference trips NU1510. (It used to be pinned to `9.0.11` to dodge NU1605 on net9.0.)
 - **Style** (`.editorconfig`): LF line endings, 4-space indent, `_`/`s_` field prefixes, Allman
   braces, `system` usings first.
 
@@ -151,5 +152,5 @@ build.yaml/meta.json/manifest.json. Keep `build.yaml` ASCII-only. Full release p
 
 - [`docs/lessons-learned.md`](docs/lessons-learned.md), [`docs/mdblist-v1-notes.md`](docs/mdblist-v1-notes.md),
   [`docs/V2-verification.md`](docs/V2-verification.md).
-- [`docs/jellyfin-12-compat.md`](docs/jellyfin-12-compat.md) — the one open roadmap item: a separate
-  `net10.0` build for Jellyfin 12.
+- [`docs/jellyfin-12-compat.md`](docs/jellyfin-12-compat.md) — why the 10.11 and 12 lines are separate
+  binaries, and how one manifest serves both. Read it before touching `targetAbi` or the version number.

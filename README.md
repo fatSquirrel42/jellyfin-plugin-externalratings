@@ -1,8 +1,9 @@
 <h1 align="center">Jellyfin External Ratings Plugin</h1>
 
 A Jellyfin server plugin that resolves an external community score and writes it into Jellyfin's
-standard `CommunityRating` field. Targets **Jellyfin 10.11.x** (`net9.0`). (Jellyfin 12.0 needs a
-separate net10.0 build — see [docs/jellyfin-12-compat.md](docs/jellyfin-12-compat.md).)
+standard `CommunityRating` field. Requires **Jellyfin 12.0 or newer** (`net10.0`). On Jellyfin
+10.11.x install **0.2.0.0**, the last release of that line — newer builds cannot load there. Why the
+two lines are separate binaries: [docs/jellyfin-12-compat.md](docs/jellyfin-12-compat.md).
 
 You pick a **rating source**; the plugin works out how to reach it. There is no backend to choose.
 
@@ -50,6 +51,11 @@ https://raw.githubusercontent.com/fatSquirrel42/jellyfin-plugin-externalratings/
 
 Then **Catalog → Metadata → External Ratings → Install** and restart Jellyfin. Releasing a new version is
 documented in [RELEASING.md](RELEASING.md).
+
+The same URL serves both lines: a Jellyfin 12 server is offered `1.0.0.0` and newer, a 10.11.x server
+only ever sees up to `0.2.0.0`, because `targetAbi` gates on the server version. The catalog installs
+the newest compatible version by itself, so leave the version dropdown alone — hand-picking a `0.x`
+entry on a Jellyfin 12 server installs a build that will not load.
 
 ## Build & install for local testing
 

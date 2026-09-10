@@ -13,8 +13,12 @@
     Root data directory of the Jellyfin instance (the folder that contains 'plugins', 'config', ...).
     Defaults to %LOCALAPPDATA%\jellyfin. Point this at YOUR running instance if it differs.
 
+    NOTE: this build targets net10.0 and only loads on Jellyfin 12.0 or newer. The default data dir
+    is the legacy 10.11.x test instance, which cannot load it - pass the Jellyfin 12 instance's own
+    data dir instead. Two servers must not share one data dir.
+
 .EXAMPLE
-    ./scripts/install-local.ps1
+    ./scripts/install-local.ps1 -JellyfinDataDir 'D:\Claude\jellyfin\data12'
 
 .EXAMPLE
     ./scripts/install-local.ps1 -Configuration Release -JellyfinDataDir 'D:\JellyfinData'
@@ -38,7 +42,7 @@ Write-Host "Building plugin ($Configuration)..." -ForegroundColor Cyan
 dotnet build $project -c $Configuration --nologo
 if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit code $LASTEXITCODE)." }
 
-$outDir = Join-Path $repoRoot "src/Jellyfin.Plugin.ExternalRatings/bin/$Configuration/net9.0"
+$outDir = Join-Path $repoRoot "src/Jellyfin.Plugin.ExternalRatings/bin/$Configuration/net10.0"
 
 if (-not (Test-Path $JellyfinDataDir)) {
     throw "Jellyfin data dir not found: '$JellyfinDataDir'. Pass -JellyfinDataDir <path> pointing at your instance's data folder (the one containing 'plugins')."
