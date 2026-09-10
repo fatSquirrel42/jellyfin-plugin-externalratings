@@ -16,3 +16,6 @@ on:
 jobs:
   call:
     uses: jellyfin/jellyfin-meta-plugins/.github/workflows/test.yaml@master
+    # Pinned for the same reason as build.yaml. Upstream's test workflow takes no dotnet-target.
+    with:
+      dotnet-version: '10.0.x'
