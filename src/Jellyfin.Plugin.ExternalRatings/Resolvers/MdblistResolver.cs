@@ -96,6 +96,11 @@ internal sealed class MdblistResolver : IBatchRatingResolver
         var provider = MdblistUrls.MapProvider(request.InputProvider);
         var url = MdblistUrls.BuildSingle(provider, type, request.InputId, _apiKey);
 
+        // .NET 10's HttpClient no longer checks the token before dispatching to the handler, so an
+        // already-cancelled caller could otherwise receive a result. Assert the contract here rather
+        // than relying on the transport to observe the token.
+        cancellationToken.ThrowIfCancellationRequested();
+
         HttpResponseMessage response;
         string body;
         try
@@ -245,6 +250,11 @@ internal sealed class MdblistResolver : IBatchRatingResolver
     {
         var url = MdblistUrls.BuildBatch(provider, type, _apiKey);
         var payload = JsonSerializer.Serialize(new { ids = chunk });
+
+        // .NET 10's HttpClient no longer checks the token before dispatching to the handler, so an
+        // already-cancelled caller could otherwise receive a result. Assert the contract here rather
+        // than relying on the transport to observe the token.
+        cancellationToken.ThrowIfCancellationRequested();
 
         HttpResponseMessage response;
         string body;

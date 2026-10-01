@@ -5,7 +5,7 @@
     "description": "Server-side plugin that resolves the community score of an external source and writes it into Jellyfin's standard CommunityRating field. IMDb is served from a local copy of IMDb's own dataset files, with no API key and no request quota, and covers movies, series, seasons and episodes. MyAnimeList and eight other sources come through mdblist and need a free API key.",
     "overview": "Resolves external community ratings (IMDb, or MyAnimeList and eight more via mdblist) into Jellyfin's CommunityRating field.",
     "owner": "fatSquirrel42",
-    "targetAbi": "10.11.11.0",
-    "framework": "net9.0",
-    "version": "0.2.0.0"
+    "targetAbi": "12.0.0.0",
+    "framework": "net10.0",
+    "version": "1.0.0.0"
 }

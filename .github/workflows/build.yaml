@@ -16,3 +16,9 @@ on:
 jobs:
   call:
     uses: jellyfin/jellyfin-meta-plugins/.github/workflows/build.yaml@master
+    # Set explicitly rather than inheriting: the upstream workflow tracks @master and its defaults
+    # already moved once (net9.0 -> net10.0 for Jellyfin 12). Naming them here means a future
+    # upstream default change cannot retarget our build without a commit in this repo.
+    with:
+      dotnet-version: '10.0.x'
+      dotnet-target: 'net10.0'

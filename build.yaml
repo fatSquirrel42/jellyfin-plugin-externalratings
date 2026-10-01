@@ -1,9 +1,9 @@
 ---
 name: "External Ratings"
 guid: "54015a93-7e43-4406-adcf-a15cc251dff1"
-version: "0.2.0.0"
-targetAbi: "10.11.11.0"
-framework: "net9.0"
+version: "1.0.0.0"
+targetAbi: "12.0.0.0"
+framework: "net10.0"
 overview: "Resolves external community ratings (IMDb, or MyAnimeList and eight more via mdblist) into Jellyfin's CommunityRating field."
 description: >
   Server-side plugin that resolves the community score of an external source and writes it
@@ -16,19 +16,9 @@ owner: "fatSquirrel42"
 artifacts:
 - "Jellyfin.Plugin.ExternalRatings.dll"
 changelog: |
-  Adds season and episode ratings, and an IMDb source that needs no API key.
-  - New IMDb source, resolved from local copies of IMDb's own dataset files (title.ratings, plus
-    title.episode for season scores). No API key, no request quota, and it covers all four item
-    levels. The files are downloaded on your server and refreshed on a schedule you pick
-    (daily/weekly/monthly, or never).
-  - Seasons and episodes can now be rated. Both are off by default - turn them on under
-    "Item levels". An episode is matched by its own IMDb id only, never by its position in the
-    season, because TheTVDB and IMDb numbering diverge for some shows.
-  - A season score is IMDb's season: the mean over every episode IMDb lists for it, so it matches
-    the figure IMDb's own page shows even when you only hold part of the season. Which IMDb season
-    a season is comes from its episodes' ids; if they land in two IMDb seasons, or none, nothing is
-    written rather than something guessed.
-  - The provider setting is gone. You choose only a rating source per library, and the plugin picks
-    the way to resolve it from the source, the item level and the ids the item actually has.
-  - An item whose source cannot serve its level is cleared, not skipped, so the field always shows
-    the configured source or nothing.
+  Requires Jellyfin 12.0 or newer. On Jellyfin 10.11.x stay on 0.2.0.0 - this build cannot load there.
+  - Rebuilt for Jellyfin 12.0, which runs on .NET 10. A plugin compiled against 10.11.x is binary
+    incompatible with a 12.0 server, so this release is offered only to servers running 12.0 or newer.
+    Servers on 10.11.x keep seeing 0.2.0.0 as their newest installable version.
+  - No functional changes. Sources, item levels, episode and season matching, the budget and cache
+    behaviour and the configuration page all work exactly as in 0.2.0.0.
