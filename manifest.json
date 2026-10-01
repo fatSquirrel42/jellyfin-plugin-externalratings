@@ -8,6 +8,14 @@
         "category": "Metadata",
         "versions": [
             {
+                "version": "1.0.0.0",
+                "changelog": "Requires Jellyfin 12.0 or newer. On Jellyfin 10.11.x stay on 0.2.0.0 - this build cannot load there.\n- Rebuilt for Jellyfin 12.0, which runs on .NET 10. A plugin compiled against 10.11.x is binary\n  incompatible with a 12.0 server, so this release is offered only to servers running 12.0 or newer.\n  Servers on 10.11.x keep seeing 0.2.0.0 as their newest installable version.\n- No functional changes. Sources, item levels, episode and season matching, the budget and cache\n  behaviour and the configuration page all work exactly as in 0.2.0.0.\n",
+                "targetAbi": "12.0.0.0",
+                "sourceUrl": "https://github.com/fatSquirrel42/jellyfin-plugin-externalratings/releases/download/v1.0.0.0/external-ratings_1.0.0.0.zip",
+                "checksum": "ab36fd0a3529076aea02ce48a225e082",
+                "timestamp": "2026-10-01T09:28:33Z"
+            },
+            {
                 "version": "0.2.0.0",
                 "changelog": "Adds season and episode ratings, and an IMDb source that needs no API key.\n- New IMDb source, resolved from local copies of IMDb's own dataset files (title.ratings, plus\n  title.episode for season scores). No API key, no request quota, and it covers all four item\n  levels. The files are downloaded on your server and refreshed on a schedule you pick\n  (daily/weekly/monthly, or never).\n- Seasons and episodes can now be rated. Both are off by default - turn them on under\n  \"Item levels\". An episode is matched by its own IMDb id only, never by its position in the\n  season, because TheTVDB and IMDb numbering diverge for some shows.\n- A season score is IMDb's season: the mean over every episode IMDb lists for it, so it matches\n  the figure IMDb's own page shows even when you only hold part of the season. Which IMDb season\n  a season is comes from its episodes' ids; if they land in two IMDb seasons, or none, nothing is\n  written rather than something guessed.\n- The provider setting is gone. You choose only a rating source per library, and the plugin picks\n  the way to resolve it from the source, the item level and the ids the item actually has.\n- An item whose source cannot serve its level is cleared, not skipped, so the field always shows\n  the configured source or nothing.\n",
                 "targetAbi": "10.11.11.0",
